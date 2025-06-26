@@ -8,6 +8,9 @@ if (!isLoggedIn()) {
 
 $user = getCurrentUser();
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
 // Inisialisasi variabel untuk pesan feedback
 $success = null;
 $error = null;

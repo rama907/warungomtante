@@ -8,25 +8,29 @@ if (!isLoggedIn()) {
 
 $user = getCurrentUser();
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
 // Get all activities for current user
 $stmt = $conn->prepare("
-    SELECT * FROM duty_logs 
-    WHERE employee_id = ? 
-    ORDER BY duty_start DESC 
+    SELECT * FROM duty_logs
+    WHERE employee_id = ?
+    ORDER BY duty_start DESC
     LIMIT 50
 ");
 $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $activities = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
-// Get weekly summary
+// Get weekly summary - THIS SECTION IS NOW COMMENTED OUT/REMOVED AS PER REQUEST
+/*
 $stmt = $conn->prepare("
-    SELECT 
+    SELECT
         WEEK(duty_start) as week_num,
         YEAR(duty_start) as year,
         SUM(duration_minutes) as total_minutes,
         COUNT(*) as total_sessions
-    FROM duty_logs 
+    FROM duty_logs
     WHERE employee_id = ? AND duty_end IS NOT NULL
     GROUP BY WEEK(duty_start), YEAR(duty_start)
     ORDER BY year DESC, week_num DESC
@@ -35,6 +39,7 @@ $stmt = $conn->prepare("
 $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $weekly_summary = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+*/
 ?>
 
 <!DOCTYPE html>
@@ -60,31 +65,6 @@ $weekly_summary = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
             </div>
 
             <div class="content-grid">
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Ringkasan Mingguan</h3>
-                    </div>
-                    <div class="card-content">
-                        <?php if (empty($weekly_summary)): ?>
-                            <div class="no-data">Belum ada data mingguan</div>
-                        <?php else: ?>
-                            <div class="weekly-list">
-                                <?php foreach ($weekly_summary as $week): ?>
-                                <div class="weekly-item">
-                                    <div class="week-info">
-                                        <span class="week-label">Minggu <?= $week['week_num'] ?>, <?= $week['year'] ?></span>
-                                        <span class="week-sessions"><?= $week['total_sessions'] ?> sesi</span>
-                                    </div>
-                                    <div class="week-duration">
-                                        <?= formatDuration($week['total_minutes']) ?>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
                 <div class="card">
                     <div class="card-header">
                         <h3>Riwayat Aktivitas</h3>

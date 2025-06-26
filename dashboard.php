@@ -8,6 +8,9 @@ if (!isLoggedIn()) {
 
 $user = getCurrentUser();
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
 // Handle duty actions
 if ($_POST['action'] ?? '' === 'on_duty') {
     if (!$user['is_on_duty']) {

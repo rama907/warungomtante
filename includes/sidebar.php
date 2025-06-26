@@ -40,6 +40,9 @@
         <a href="requests.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'requests.php' ? 'active' : '' ?>">
             <span class="nav-icon">📋</span>
             <span class="nav-text">Permohonan</span>
+            <?php if (isset($pending_requests_count) && $pending_requests_count > 0): ?>
+                <span class="pending-indicator"><?= $pending_requests_count ?></span>
+            <?php endif; ?>
         </a>
         <a href="admin.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'admin.php' ? 'active' : '' ?>">
             <span class="nav-icon">⚙️</span>

@@ -8,6 +8,9 @@ if (!isLoggedIn()) {
 
 $user = getCurrentUser();
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
 // Get all leave requests
 $leave_stmt = $conn->query("
     SELECT lr.*, e.name as employee_name, e.role as employee_role, 

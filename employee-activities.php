@@ -1,10 +1,13 @@
 <?php
 require_once 'config.php';
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
 // Pastikan fungsi formatDuration dan getRoleDisplayName ada di config.php atau di-include di tempat lain
 if (!function_exists('formatDuration')) {
     function formatDuration($minutes) {
-        if ($minutes < 0) return "0j 0m"; // Handle negative duration gracefully
+        if ($minutes < 0) return "0j 0m"; // Tangani durasi negatif dengan baik
         $hours = floor($minutes / 60);
         $remainingMinutes = $minutes % 60;
         return "{$hours}j {$remainingMinutes}m";
@@ -31,26 +34,42 @@ if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur', 'manager'])) {
     exit;
 }
 
-// Get employee activities summary
+// Dapatkan ringkasan aktivitas karyawan
+// QUERY DIMODIFIKASI UNTUK MELAKUKAN PRA-AGREGASI DATA
 $stmt = $conn->query("
-    SELECT 
+    SELECT
         e.id,
         e.name,
         e.role,
         e.is_on_duty,
-        -- Gunakan WEEK(column, 1) dan YEAR(column) untuk konsistensi dengan sales.php
-        COALESCE(SUM(CASE WHEN WEEK(dl.duty_start, 1) = WEEK(NOW(), 1) AND YEAR(dl.duty_start) = YEAR(NOW()) THEN dl.duration_minutes ELSE 0 END), 0) as total_duty_minutes,
-        COALESCE(SUM(CASE WHEN WEEK(sd.date, 1) = WEEK(NOW(), 1) AND YEAR(sd.date) = YEAR(NOW()) THEN sd.paket_makan_minum ELSE 0 END), 0) as total_paket_makan_minum,
-        COALESCE(SUM(CASE WHEN WEEK(sd.date, 1) = WEEK(NOW(), 1) AND YEAR(sd.date) = YEAR(NOW()) THEN sd.paket_snack ELSE 0 END), 0) as total_paket_snack,
-        COALESCE(SUM(CASE WHEN WEEK(sd.date, 1) = WEEK(NOW(), 1) AND YEAR(sd.date) = YEAR(NOW()) THEN sd.masak_paket ELSE 0 END), 0) as total_masak_paket,
-        COALESCE(SUM(CASE WHEN WEEK(sd.date, 1) = WEEK(NOW(), 1) AND YEAR(sd.date) = YEAR(NOW()) THEN sd.masak_snack ELSE 0 END), 0) as total_masak_snack
+        COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
+        COALESCE(sales_summary.total_paket_makan_minum, 0) as total_paket_makan_minum,
+        COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
+        COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
+        COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
     FROM employees e
-    LEFT JOIN duty_logs dl ON e.id = dl.employee_id 
-    LEFT JOIN sales_data sd ON e.id = sd.employee_id 
+    LEFT JOIN (
+        SELECT
+            employee_id,
+            SUM(duration_minutes) as total_duty_minutes
+        FROM duty_logs
+        WHERE WEEK(duty_start, 1) = WEEK(NOW(), 1) AND YEAR(duty_start) = YEAR(NOW())
+        GROUP BY employee_id
+    ) as duty_summary ON e.id = duty_summary.employee_id
+    LEFT JOIN (
+        SELECT
+            employee_id,
+            SUM(paket_makan_minum) as total_paket_makan_minum,
+            SUM(paket_snack) as total_paket_snack,
+            SUM(masak_paket) as total_masak_paket,
+            SUM(masak_snack) as total_masak_snack
+        FROM sales_data
+        WHERE WEEK(date, 1) = WEEK(NOW(), 1) AND YEAR(date) = YEAR(NOW())
+        GROUP BY employee_id
+    ) as sales_summary ON e.id = sales_summary.employee_id
     WHERE e.status = 'active'
-    GROUP BY e.id, e.name, e.role, e.is_on_duty
-    ORDER BY 
-        CASE e.role 
+    ORDER BY
+        CASE e.role
             WHEN 'direktur' THEN 1
             WHEN 'wakil_direktur' THEN 2
             WHEN 'manager' THEN 3
@@ -80,7 +99,7 @@ $stmt->close(); // Tutup statement setelah mengambil hasil
         <main class="main-content">
             <div class="page-header">
                 <h1>
-                    <span class="page-icon">📈</span>
+                    <span class="page-icon">📊</span>
                     Aktivitas Anggota
                 </h1>
                 <p>Ringkasan aktivitas dan performa semua anggota minggu ini</p>
@@ -97,11 +116,11 @@ $stmt->close(); // Tutup statement setelah mengambil hasil
                     </div>
                 </div>
                 <div class="summary-card">
-                    <div class="summary-icon" style="color: var(--primary-color);">📦</div>
+                    <div class="summary-icon" style="color: var(--primary-color);">💰</div>
                     <div class="summary-content">
                         <h4>Total Paket Terjual</h4>
                         <p class="summary-value">
-                            <?= array_sum(array_column($employee_activities, 'total_paket_makan_minum')) + 
+                            <?= array_sum(array_column($employee_activities, 'total_paket_makan_minum')) +
                                 array_sum(array_column($employee_activities, 'total_paket_snack')) +
                                 array_sum(array_column($employee_activities, 'total_masak_paket')) +
                                 array_sum(array_column($employee_activities, 'total_masak_snack')) ?>
@@ -109,7 +128,7 @@ $stmt->close(); // Tutup statement setelah mengambil hasil
                     </div>
                 </div>
                 <div class="summary-card">
-                    <div class="summary-icon" style="color: var(--success-color);">👥</div>
+                    <div class="summary-icon" style="color: var(--success-color);">✅</div>
                     <div class="summary-content">
                         <h4>Anggota Aktif On Duty</h4>
                         <p class="summary-value">

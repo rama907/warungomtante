@@ -8,6 +8,13 @@ if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur'])) {
 
 $user = getCurrentUser();
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
+// Inisialisasi variabel feedback
+$success = null;
+$error = null;
+
 // Handle admin actions
 if ($_POST['action'] ?? '' === 'add_employee') {
     $name = $_POST['name'] ?? '';
@@ -20,11 +27,16 @@ if ($_POST['action'] ?? '' === 'add_employee') {
     
     if ($name && $role) {
         $stmt = $conn->prepare("INSERT INTO employees (name, role, password) VALUES (?, ?, ?)");
-        $stmt->bind_param("sss", $name, $role, $password);
-        if ($stmt->execute()) {
-            $success = "Anggota baru berhasil ditambahkan! Password default: 'password'";
+        if (!$stmt) {
+            $error = "Gagal menyiapkan query tambah anggota: " . $conn->error;
         } else {
-            $error = "Gagal menambahkan anggota baru!";
+            $stmt->bind_param("sss", $name, $role, $password);
+            if ($stmt->execute()) {
+                $success = "Anggota baru berhasil ditambahkan! Password default: 'password'";
+            } else {
+                $error = "Gagal menambahkan anggota baru: " . $stmt->error;
+            }
+            $stmt->close();
         }
     } else {
         $error = "Nama dan jabatan harus diisi!";
@@ -38,26 +50,36 @@ if ($_POST['action'] ?? '' === 'update_role') {
     if ($employee_id && $new_role) {
         // Get employee name for feedback
         $stmt = $conn->prepare("SELECT name, role FROM employees WHERE id = ? AND status = 'active'");
-        $stmt->bind_param("i", $employee_id);
-        $stmt->execute();
-        $employee_data = $stmt->get_result()->fetch_assoc();
-        
-        if ($employee_data) {
-            // Check if the new role is different from current role
-            if ($employee_data['role'] !== $new_role) {
-                $stmt = $conn->prepare("UPDATE employees SET role = ? WHERE id = ? AND status = 'active'");
-                $stmt->bind_param("si", $new_role, $employee_id);
-                if ($stmt->execute() && $stmt->affected_rows > 0) {
-                    $success = "Jabatan " . htmlspecialchars($employee_data['name']) . " berhasil diubah dari " . getRoleDisplayName($employee_data['role']) . " menjadi " . getRoleDisplayName($new_role) . "!";
-                    sendDiscordNotification("Jabatan " . $employee_data['name'] . " telah diubah oleh " . $user['name'] . " dari " . getRoleDisplayName($employee_data['role']) . " menjadi " . getRoleDisplayName($new_role), "info");
+        if (!$stmt) {
+            $error = "Gagal menyiapkan query cek anggota: " . $conn->error;
+        } else {
+            $stmt->bind_param("i", $employee_id);
+            $stmt->execute();
+            $employee_data = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            
+            if ($employee_data) {
+                // Check if the new role is different from current role
+                if ($employee_data['role'] !== $new_role) {
+                    $stmt_update = $conn->prepare("UPDATE employees SET role = ? WHERE id = ? AND status = 'active'");
+                    if (!$stmt_update) {
+                        $error = "Gagal menyiapkan query update jabatan: " . $conn->error;
+                    } else {
+                        $stmt_update->bind_param("si", $new_role, $employee_id);
+                        if ($stmt_update->execute() && $stmt_update->affected_rows > 0) {
+                            $success = "Jabatan " . htmlspecialchars($employee_data['name']) . " berhasil diubah dari " . getRoleDisplayName($employee_data['role']) . " menjadi " . getRoleDisplayName($new_role) . "!";
+                            sendDiscordNotification("Jabatan " . $employee_data['name'] . " telah diubah oleh " . $user['name'] . " dari " . getRoleDisplayName($employee_data['role']) . " menjadi " . getRoleDisplayName($new_role), "info");
+                        } else {
+                            $error = "Gagal mengubah jabatan: " . $stmt_update->error;
+                        }
+                        $stmt_update->close();
+                    }
                 } else {
-                    $error = "Gagal mengubah jabatan!";
+                    $error = "Jabatan yang dipilih sama dengan jabatan saat ini!";
                 }
             } else {
-                $error = "Jabatan yang dipilih sama dengan jabatan saat ini!";
+                $error = "Anggota tidak ditemukan atau tidak aktif!";
             }
-        } else {
-            $error = "Anggota tidak ditemukan!";
         }
     } else {
         $error = "Data tidak lengkap untuk mengubah jabatan!";
@@ -81,21 +103,31 @@ if ($_POST['action'] ?? '' === 'deactivate_employee') {
     if ($employee_id && $employee_id != $user['id']) {
         // Get employee name for feedback
         $stmt = $conn->prepare("SELECT name FROM employees WHERE id = ? AND status = 'active'");
-        $stmt->bind_param("i", $employee_id);
-        $stmt->execute();
-        $employee_data = $stmt->get_result()->fetch_assoc();
-        
-        if ($employee_data) {
-            $stmt = $conn->prepare("UPDATE employees SET status = 'inactive' WHERE id = ?");
-            $stmt->bind_param("i", $employee_id);
-            if ($stmt->execute()) {
-                $success = "Anggota " . htmlspecialchars($employee_data['name']) . " berhasil dinonaktifkan!";
-                sendDiscordNotification("Anggota " . $employee_data['name'] . " telah dinonaktifkan oleh " . $user['name'], "warning");
-            } else {
-                $error = "Gagal menonaktifkan anggota!";
-            }
+        if (!$stmt) {
+            $error = "Gagal menyiapkan query cek anggota: " . $conn->error;
         } else {
-            $error = "Anggota tidak ditemukan!";
+            $stmt->bind_param("i", $employee_id);
+            $stmt->execute();
+            $employee_data = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            
+            if ($employee_data) {
+                $stmt_update = $conn->prepare("UPDATE employees SET status = 'inactive' WHERE id = ?");
+                if (!$stmt_update) {
+                    $error = "Gagal menyiapkan query nonaktifkan anggota: " . $conn->error;
+                } else {
+                    $stmt_update->bind_param("i", $employee_id);
+                    if ($stmt_update->execute()) {
+                        $success = "Anggota " . htmlspecialchars($employee_data['name']) . " berhasil dinonaktifkan!";
+                        sendDiscordNotification("Anggota " . $employee_data['name'] . " telah dinonaktifkan oleh " . $user['name'], "warning");
+                    } else {
+                        $error = "Gagal menonaktifkan anggota: " . $stmt_update->error;
+                    }
+                    $stmt_update->close();
+                }
+            } else {
+                $error = "Anggota tidak ditemukan atau sudah tidak aktif!";
+            }
         }
     } else {
         $error = "Tidak dapat menonaktifkan diri sendiri atau ID tidak valid!";
@@ -160,7 +192,6 @@ $stats['pending_requests'] = $conn->query("
                 <div class="error-message"><?= $error ?></div>
             <?php endif; ?>
 
-            <!-- System Statistics -->
             <div class="stats-grid">
                 <div class="stat-card">
                     <div class="stat-icon">👥</div>
@@ -190,7 +221,6 @@ $stats['pending_requests'] = $conn->query("
                 <button class="tab-button" onclick="showAdminTab('system')">Pengaturan Sistem</button>
             </div>
 
-            <!-- Employee Management Tab -->
             <div id="employees-admin-tab" class="tab-content active">
                 <div class="content-grid">
                     <div class="card">
@@ -198,7 +228,7 @@ $stats['pending_requests'] = $conn->query("
                             <h3>Tambah Anggota Baru</h3>
                         </div>
                         <div class="card-content">
-                            <form method="POST" class="admin-form">
+                            <form method="POST" class="admin-form" id="add_employee_form" onsubmit="return false;">
                                 <input type="hidden" name="action" value="add_employee">
                                 
                                 <div class="form-row">
@@ -227,7 +257,7 @@ $stats['pending_requests'] = $conn->query("
                                     <small class="form-help">Jika dikosongkan, password default adalah: <strong>password</strong></small>
                                 </div>
                                 
-                                <button type="submit" class="btn btn-primary">Tambah Anggota</button>
+                                <button type="submit" id="submit_add_employee" form="add_employee_form" class="btn btn-primary">Tambah Anggota</button>
                             </form>
                         </div>
                     </div>
@@ -253,42 +283,40 @@ $stats['pending_requests'] = $conn->query("
                                     </div>
                                     
                                     <div class="employee-actions">
-                                        <!-- Role Change Form -->
-                                        <form method="POST" class="role-change-form" onsubmit="return confirmRoleChange('<?= htmlspecialchars($employee['name']) ?>', this)">
+                                        <form method="POST" class="role-change-form" id="update_role_form_<?= $employee['id'] ?>" onsubmit="return confirmRoleChange('<?= htmlspecialchars($employee['name']) ?>', this)">
                                             <input type="hidden" name="action" value="update_role">
                                             <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
                                             <div class="role-change-group">
                                                 <select name="new_role" class="form-select-small" required>
                                                     <option value="">Ubah Jabatan</option>
-                                                    <option value="direktur" <?= $employee['role'] == 'direktur' ? 'disabled style="color: #ccc;"' : '' ?>>
+                                                    <option value="direktur" <?= $employee['role'] == 'direktur' ? 'selected' : '' ?>>
                                                         Direktur <?= $employee['role'] == 'direktur' ? '(Saat ini)' : '' ?>
                                                     </option>
-                                                    <option value="wakil_direktur" <?= $employee['role'] == 'wakil_direktur' ? 'disabled style="color: #ccc;"' : '' ?>>
+                                                    <option value="wakil_direktur" <?= $employee['role'] == 'wakil_direktur' ? 'selected' : '' ?>>
                                                         Wakil Direktur <?= $employee['role'] == 'wakil_direktur' ? '(Saat ini)' : '' ?>
                                                     </option>
-                                                    <option value="manager" <?= $employee['role'] == 'manager' ? 'disabled style="color: #ccc;"' : '' ?>>
+                                                    <option value="manager" <?= $employee['role'] == 'manager' ? 'selected' : '' ?>>
                                                         Manager <?= $employee['role'] == 'manager' ? '(Saat ini)' : '' ?>
                                                     </option>
-                                                    <option value="chef" <?= $employee['role'] == 'chef' ? 'disabled style="color: #ccc;"' : '' ?>>
+                                                    <option value="chef" <?= $employee['role'] == 'chef' ? 'selected' : '' ?>>
                                                         Chef <?= $employee['role'] == 'chef' ? '(Saat ini)' : '' ?>
                                                     </option>
-                                                    <option value="karyawan" <?= $employee['role'] == 'karyawan' ? 'disabled style="color: #ccc;"' : '' ?>>
+                                                    <option value="karyawan" <?= $employee['role'] == 'karyawan' ? 'selected' : '' ?>>
                                                         Karyawan <?= $employee['role'] == 'karyawan' ? '(Saat ini)' : '' ?>
                                                     </option>
-                                                    <option value="magang" <?= $employee['role'] == 'magang' ? 'disabled style="color: #ccc;"' : '' ?>>
+                                                    <option value="magang" <?= $employee['role'] == 'magang' ? 'selected' : '' ?>>
                                                         Magang <?= $employee['role'] == 'magang' ? '(Saat ini)' : '' ?>
                                                     </option>
                                                 </select>
-                                                <button type="submit" class="btn btn-primary btn-sm">Ubah</button>
+                                                <button type="submit" form="update_role_form_<?= $employee['id'] ?>" class="btn btn-primary btn-sm">Ubah</button>
                                             </div>
                                         </form>
                                         
-                                        <!-- Deactivate Form -->
                                         <?php if ($employee['id'] != $user['id']): ?>
-                                        <form method="POST" class="deactivate-form" onsubmit="return confirm('Yakin ingin menonaktifkan <?= htmlspecialchars($employee['name']) ?>?\n\nAnggota yang dinonaktifkan tidak dapat login lagi.')">
+                                        <form method="POST" class="deactivate-form" id="deactivate_form_<?= $employee['id'] ?>" onsubmit="return confirm('Yakin ingin menonaktifkan <?= htmlspecialchars($employee['name']) ?>?\n\nAnggota yang dinonaktifkan tidak dapat login lagi.')">
                                             <input type="hidden" name="action" value="deactivate_employee">
                                             <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
-                                            <button type="submit" class="btn btn-danger btn-sm">Nonaktifkan</button>
+                                            <button type="submit" form="deactivate_form_<?= $employee['id'] ?>" class="btn btn-danger btn-sm">Nonaktifkan</button>
                                         </form>
                                         <?php else: ?>
                                         <div class="self-indicator">
@@ -304,7 +332,6 @@ $stats['pending_requests'] = $conn->query("
                 </div>
             </div>
 
-            <!-- System Settings Tab -->
             <div id="system-admin-tab" class="tab-content">
                 <div class="card">
                     <div class="card-header">
@@ -317,9 +344,9 @@ $stats['pending_requests'] = $conn->query("
                                     <h4>Reset Data Mingguan</h4>
                                     <p>Reset total jam duty dan data penjualan semua anggota untuk minggu baru</p>
                                 </div>
-                                <form method="POST" onsubmit="return confirm('Yakin ingin mereset semua data mingguan? Tindakan ini tidak dapat dibatalkan!')">
+                                <form method="POST" id="reset_weekly_data_form" onsubmit="return confirm('Yakin ingin mereset semua data mingguan? Tindakan ini tidak dapat dibatalkan!')">
                                     <input type="hidden" name="action" value="reset_weekly_data">
-                                    <button type="submit" class="btn btn-warning">Reset Data Mingguan</button>
+                                    <button type="submit" form="reset_weekly_data_form" class="btn btn-warning">Reset Data Mingguan</button>
                                 </form>
                             </div>
                             
@@ -376,6 +403,13 @@ $stats['pending_requests'] = $conn->query("
                 'magang': 'Magang'
             };
             
+            // Jika role yang dipilih adalah yang sudah menjadi saat ini, tampilkan pesan error
+            const currentRoleOption = form.querySelector('select[name="new_role"] option[selected]');
+            if (currentRoleOption && currentRoleOption.value === newRole) {
+                alert('Jabatan yang dipilih sama dengan jabatan saat ini!');
+                return false;
+            }
+
             if (!newRole) {
                 alert('Pilih jabatan baru terlebih dahulu!');
                 return false;
@@ -384,26 +418,49 @@ $stats['pending_requests'] = $conn->query("
             return confirm(`Yakin ingin mengubah jabatan ${employeeName} menjadi ${roleNames[newRole]}?`);
         }
         
-        // Prevent double submission and show loading state
+        // Custom submit handler for add_employee_form to prevent accidental submission
         document.addEventListener('DOMContentLoaded', function() {
-            const forms = document.querySelectorAll('form');
+            const addEmployeeForm = document.getElementById('add_employee_form');
+            const submitAddEmployeeBtn = document.getElementById('submit_add_employee');
+
+            if (addEmployeeForm && submitAddEmployeeBtn) {
+                addEmployeeForm.addEventListener('submit', function(e) {
+                    e.preventDefault(); // Mencegah pengiriman formulir otomatis
+                    if (submitAddEmployeeBtn.disabled) return; // Jangan lakukan apa-apa jika tombol disabled
+
+                    // Lakukan validasi formulir (jika ada)
+                    // ...
+
+                    // Jika validasi sukses, kirim formulir secara manual
+                    submitAddEmployeeBtn.disabled = true;
+                    const originalText = submitAddEmployeeBtn.textContent;
+                    submitAddEmployeeBtn.innerHTML = '<span class="spinner"></span> Memproses...';
+
+                    // Lanjutkan pengiriman formulir setelah penundaan singkat untuk efek loading
+                    setTimeout(() => {
+                        addEmployeeForm.submit(); // Kirim formulir secara programatis
+                    }, 100); // Penundaan singkat sebelum submit asli
+                });
+            }
+
+            // General form submit handler (for other forms)
+            const forms = document.querySelectorAll('form:not(#add_employee_form)'); // Pilih semua form kecuali add_employee_form
             
             forms.forEach(form => {
                 form.addEventListener('submit', function(e) {
                     const submitBtn = this.querySelector('button[type="submit"]');
                     if (submitBtn && !submitBtn.disabled) {
-                        // Disable button to prevent double submission
                         submitBtn.disabled = true;
-                        
-                        // Show loading state
                         const originalText = submitBtn.textContent;
                         submitBtn.innerHTML = '<span class="spinner"></span> Memproses...';
                         
-                        // Re-enable after 5 seconds as fallback
                         setTimeout(() => {
-                            submitBtn.disabled = false;
-                            submitBtn.textContent = originalText;
-                        }, 5000);
+                            // Setelah timeout, biarkan submit alami terjadi jika belum terjadi
+                            if (submitBtn.disabled) { // Pastikan belum re-enabled oleh JavaScript lain
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = originalText;
+                            }
+                        }, 5000); // Fallback re-enable after 5 seconds
                     }
                 });
             });

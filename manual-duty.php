@@ -8,6 +8,9 @@ if (!isLoggedIn()) {
 
 $user = getCurrentUser();
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
 // Handle form submission
 if ($_POST['action'] ?? '' === 'submit_manual_duty') {
     $duty_date = $_POST['duty_date'] ?? '';

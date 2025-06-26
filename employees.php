@@ -6,6 +6,9 @@ if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur', 'manager'])) {
     exit;
 }
 
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
+
 // Get all employees
 $stmt = $conn->query("
     SELECT e.*, 

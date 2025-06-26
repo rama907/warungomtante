@@ -1,4 +1,7 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
 // Database configuration
 define('DB_HOST', 'localhost');
 define('DB_USER', 'warungom_db_absensi_omtante');
@@ -89,5 +92,39 @@ function sendDiscordNotification($message, $type = 'info') {
     $context = stream_context_create($options);
     @file_get_contents($webhook_url, false, $context);
     */
+}
+// Function to get total pending requests
+function getPendingRequestCount() {
+    global $conn;
+    $count = 0;
+
+    // Count pending leave requests
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending'");
+    if ($stmt) {
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $count += $result['count'];
+        $stmt->close();
+    }
+
+    // Count pending resignation requests
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM resignation_requests WHERE status = 'pending'");
+    if ($stmt) {
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $count += $result['count'];
+        $stmt->close();
+    }
+    
+    // Count pending manual duty requests
+    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM manual_duty_requests WHERE status = 'pending'");
+    if ($stmt) {
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $count += $result['count'];
+        $stmt->close();
+    }
+
+    return $count;
 }
 ?>

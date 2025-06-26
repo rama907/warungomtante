@@ -1,239 +1,224 @@
 <?php
 require_once 'config.php';
 
+// PENTING: Aktifkan ini untuk debugging. Pastikan untuk menonaktifkan atau membatasinya di produksi.
+// ini_set('display_errors', 1);
+// ini_set('display_startup_errors', 1);
+// error_reporting(E_ALL);
+
 if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur'])) {
     header('Location: dashboard.php');
     exit;
 }
 
-$user = getCurrentUser();
+$user = getCurrentUser(); // Pastikan user selalu diambil di awal
 
-// Handle approval/rejection actions with better error handling and logging
-if ($_POST['action'] ?? '' === 'approve_leave') {
+// Ambil jumlah permohonan pending
+$pending_requests_count = getPendingRequestCount();
+
+// Inisialisasi variabel feedback
+$success = null;
+$error = null;
+$message_type = 'success'; // Default type for success messages
+
+// Handle approval/rejection actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $action = $_POST['action'] ?? '';
     $request_id = (int)($_POST['request_id'] ?? 0);
-    if ($request_id > 0) {
-        // First check if request exists and is pending
-        $stmt = $conn->prepare("SELECT lr.*, e.name as employee_name FROM leave_requests lr JOIN employees e ON lr.employee_id = e.id WHERE lr.id = ? AND lr.status = 'pending'");
-        $stmt->bind_param("i", $request_id);
-        $stmt->execute();
-        $request_data = $stmt->get_result()->fetch_assoc();
-        
-        if ($request_data) {
-            $stmt = $conn->prepare("UPDATE leave_requests SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ? AND status = 'pending'");
-            $stmt->bind_param("ii", $user['id'], $request_id);
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $success = "Permohonan cuti dari " . htmlspecialchars($request_data['employee_name']) . " berhasil disetujui!";
-                sendDiscordNotification("Permohonan cuti " . $request_data['employee_name'] . " telah disetujui oleh " . $user['name'], "success");
-            } else {
-                $error = "Gagal menyetujui permohonan cuti! Mungkin sudah diproses sebelumnya.";
-            }
-        } else {
-            $error = "Permohonan cuti tidak ditemukan atau sudah diproses!";
-        }
-    } else {
+
+    if ($request_id <= 0) {
         $error = "ID permohonan tidak valid!";
-    }
-}
-
-if ($_POST['action'] ?? '' === 'reject_leave') {
-    $request_id = (int)($_POST['request_id'] ?? 0);
-    if ($request_id > 0) {
-        // First check if request exists and is pending
-        $stmt = $conn->prepare("SELECT lr.*, e.name as employee_name FROM leave_requests lr JOIN employees e ON lr.employee_id = e.id WHERE lr.id = ? AND lr.status = 'pending'");
-        $stmt->bind_param("i", $request_id);
-        $stmt->execute();
-        $request_data = $stmt->get_result()->fetch_assoc();
-        
-        if ($request_data) {
-            $stmt = $conn->prepare("UPDATE leave_requests SET status = 'rejected', approved_by = ?, approved_at = NOW() WHERE id = ? AND status = 'pending'");
-            $stmt->bind_param("ii", $user['id'], $request_id);
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $success = "Permohonan cuti dari " . htmlspecialchars($request_data['employee_name']) . " berhasil ditolak!";
-                sendDiscordNotification("Permohonan cuti " . $request_data['employee_name'] . " telah ditolak oleh " . $user['name'], "warning");
-            } else {
-                $error = "Gagal menolak permohonan cuti! Mungkin sudah diproses sebelumnya.";
-            }
-        } else {
-            $error = "Permohonan cuti tidak ditemukan atau sudah diproses!";
-        }
+        $message_type = 'error';
     } else {
-        $error = "ID permohonan tidak valid!";
-    }
-}
+        switch ($action) {
+            case 'approve_leave':
+            case 'reject_leave':
+                $table = 'leave_requests';
+                $employee_field = 'employee_id';
+                $status_field = 'status';
+                $action_type = ($action === 'approve_leave') ? 'approved' : 'rejected';
+                $notification_prefix = "Permohonan cuti";
+                $success_msg_prefix = "Permohonan cuti dari ";
+                $error_msg_prefix = "permohonan cuti";
+                break;
 
-if ($_POST['action'] ?? '' === 'approve_resignation') {
-    $request_id = (int)($_POST['request_id'] ?? 0);
-    if ($request_id > 0) {
-        // First check if request exists and is pending
-        $stmt = $conn->prepare("SELECT rr.*, e.name as employee_name FROM resignation_requests rr JOIN employees e ON rr.employee_id = e.id WHERE rr.id = ? AND rr.status = 'pending'");
-        $stmt->bind_param("i", $request_id);
-        $stmt->execute();
-        $request_data = $stmt->get_result()->fetch_assoc();
-        
-        if ($request_data) {
-            $stmt = $conn->prepare("UPDATE resignation_requests SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ? AND status = 'pending'");
-            $stmt->bind_param("ii", $user['id'], $request_id);
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $success = "Permohonan resign dari " . htmlspecialchars($request_data['employee_name']) . " berhasil disetujui!";
-                sendDiscordNotification("Permohonan resign " . $request_data['employee_name'] . " telah disetujui oleh " . $user['name'], "success");
-            } else {
-                $error = "Gagal menyetujui permohonan resign! Mungkin sudah diproses sebelumnya.";
-            }
-        } else {
-            $error = "Permohonan resign tidak ditemukan atau sudah diproses!";
+            case 'approve_resignation':
+            case 'reject_resignation':
+                $table = 'resignation_requests';
+                $employee_field = 'employee_id';
+                $status_field = 'status';
+                $action_type = ($action === 'approve_resignation') ? 'approved' : 'rejected';
+                $notification_prefix = "Permohonan resign";
+                $success_msg_prefix = "Permohonan resign dari ";
+                $error_msg_prefix = "permohonan resign";
+                break;
+
+            case 'approve_manual_duty':
+            case 'reject_manual_duty':
+                $table = 'manual_duty_requests';
+                $employee_field = 'employee_id';
+                $status_field = 'status';
+                $action_type = ($action === 'approve_manual_duty') ? 'approved' : 'rejected';
+                $notification_prefix = "Input jam manual";
+                $success_msg_prefix = "Permohonan input jam manual dari ";
+                $error_msg_prefix = "permohonan input jam manual";
+                break;
+            default:
+                $error = "Aksi tidak dikenal.";
+                $message_type = 'error';
+                break;
         }
-    } else {
-        $error = "ID permohonan tidak valid!";
-    }
-}
 
-if ($_POST['action'] ?? '' === 'reject_resignation') {
-    $request_id = (int)($_POST['request_id'] ?? 0);
-    if ($request_id > 0) {
-        // First check if request exists and is pending
-        $stmt = $conn->prepare("SELECT rr.*, e.name as employee_name FROM resignation_requests rr JOIN employees e ON rr.employee_id = e.id WHERE rr.id = ? AND rr.status = 'pending'");
-        $stmt->bind_param("i", $request_id);
-        $stmt->execute();
-        $request_data = $stmt->get_result()->fetch_assoc();
-        
-        if ($request_data) {
-            $stmt = $conn->prepare("UPDATE resignation_requests SET status = 'rejected', approved_by = ?, approved_at = NOW() WHERE id = ? AND status = 'pending'");
-            $stmt->bind_param("ii", $user['id'], $request_id);
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $success = "Permohonan resign dari " . htmlspecialchars($request_data['employee_name']) . " berhasil ditolak!";
-                sendDiscordNotification("Permohonan resign " . $request_data['employee_name'] . " telah ditolak oleh " . $user['name'], "warning");
+        if (isset($table) && !$error) { // Lanjutkan hanya jika tabel terdefinisi dan tidak ada error awal
+            // Pertama, cek apakah permohonan ada dan statusnya pending
+            $check_stmt_sql = "SELECT r.*, e.name as employee_name FROM {$table} r JOIN employees e ON r.{$employee_field} = e.id WHERE r.id = ? AND r.{$status_field} = 'pending'";
+            $check_stmt = $conn->prepare($check_stmt_sql);
+            if (!$check_stmt) {
+                $error = "Gagal menyiapkan query cek {$error_msg_prefix}: " . $conn->error;
+                $message_type = 'error';
             } else {
-                $error = "Gagal menolak permohonan resign! Mungkin sudah diproses sebelumnya.";
-            }
-        } else {
-            $error = "Permohonan resign tidak ditemukan atau sudah diproses!";
-        }
-    } else {
-        $error = "ID permohonan tidak valid!";
-    }
-}
+                $check_stmt->bind_param("i", $request_id);
+                $check_stmt->execute();
+                $request_data = $check_stmt->get_result()->fetch_assoc();
+                $check_stmt->close();
 
-if ($_POST['action'] ?? '' === 'approve_manual_duty') {
-    $request_id = (int)($_POST['request_id'] ?? 0);
-    
-    if ($request_id > 0) {
-        // Start transaction
-        $conn->begin_transaction();
-        
-        try {
-            // Get the manual duty request details with employee name
-            $stmt = $conn->prepare("SELECT mdr.*, e.name as employee_name FROM manual_duty_requests mdr JOIN employees e ON mdr.employee_id = e.id WHERE mdr.id = ? AND mdr.status = 'pending'");
-            $stmt->bind_param("i", $request_id);
-            $stmt->execute();
-            $manual_request = $stmt->get_result()->fetch_assoc();
-            
-            if ($manual_request) {
-                // Calculate duration with overnight shift support
-                $start_datetime = $manual_request['duty_date'] . ' ' . $manual_request['start_time'];
-                $end_datetime = $manual_request['duty_date'] . ' ' . $manual_request['end_time'];
-                
-                $start_timestamp = strtotime($start_datetime);
-                $end_timestamp = strtotime($end_datetime);
-                
-                // Handle overnight shift
-                if ($end_timestamp <= $start_timestamp) {
-                    $end_timestamp += 24 * 60 * 60; // Add 24 hours
-                    $end_datetime = date('Y-m-d H:i:s', $end_timestamp);
-                }
-                
-                $duration_minutes = ($end_timestamp - $start_timestamp) / 60;
-                
-                // Insert into duty_logs
-                $stmt = $conn->prepare("
-                    INSERT INTO duty_logs (employee_id, duty_start, duty_end, duration_minutes, is_manual, approved_by, status)
-                    VALUES (?, ?, ?, ?, 1, ?, 'completed')
-                ");
-                $stmt->bind_param("issii", $manual_request['employee_id'], $start_datetime, $end_datetime, $duration_minutes, $user['id']);
-                
-                if ($stmt->execute()) {
-                    // Update manual duty request status
-                    $stmt = $conn->prepare("UPDATE manual_duty_requests SET status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ? AND status = 'pending'");
-                    $stmt->bind_param("ii", $user['id'], $request_id);
-                    
-                    if ($stmt->execute() && $stmt->affected_rows > 0) {
-                        // Commit transaction
-                        $conn->commit();
+                if ($request_data) {
+                    $conn->begin_transaction(); // Mulai transaksi
+
+                    try {
+                        if ($action_type === 'approved' && $table === 'manual_duty_requests') {
+                            // Logika khusus untuk approve manual duty
+                            $start_datetime_str = $request_data['duty_date'] . ' ' . $request_data['start_time'];
+                            $end_datetime_str = $request_data['duty_date'] . ' ' . $request_data['end_time'];
+                            
+                            $start_timestamp = strtotime($start_datetime_str);
+                            $end_timestamp = strtotime($end_datetime_str);
+                            
+                            if ($end_timestamp <= $start_timestamp) {
+                                $end_timestamp += 24 * 60 * 60; 
+                                $end_datetime_str = date('Y-m-d H:i:s', $end_timestamp);
+                            }
+                            
+                            $duration_minutes = ($end_timestamp - $start_timestamp) / 60;
+                            
+                            if ($duration_minutes < 1 || $duration_minutes > (24 * 60)) { // Tambahan validasi durasi
+                                throw new Exception("Durasi jam manual tidak valid. Pastikan durasi antara 1 menit dan 24 jam.");
+                            }
+
+                            $insert_duty_stmt = $conn->prepare("
+                                INSERT INTO duty_logs (employee_id, duty_start, duty_end, duration_minutes, is_manual, approved_by, status)
+                                VALUES (?, ?, ?, ?, 1, ?, 'completed')
+                            ");
+                            if (!$insert_duty_stmt) {
+                                throw new Exception("Gagal menyiapkan query insert duty logs: " . $conn->error);
+                            }
+                            $insert_duty_stmt->bind_param("issii", $request_data['employee_id'], $start_datetime_str, $end_datetime_str, $duration_minutes, $user['id']);
+                            
+                            if (!$insert_duty_stmt->execute()) {
+                                throw new Exception("Gagal menambahkan ke duty logs: " . $insert_duty_stmt->error);
+                            }
+                            $insert_duty_stmt->close();
+                            
+                        } elseif ($action_type === 'rejected' && $table === 'manual_duty_requests') {
+                            // Tidak ada penambahan ke duty_logs jika ditolak
+                        }
+
+                        // Update status permohonan di tabel utama
+                        $update_stmt_sql = "UPDATE {$table} SET {$status_field} = ?, approved_by = ?, approved_at = NOW() WHERE id = ? AND {$status_field} = 'pending'";
+                        $update_stmt = $conn->prepare($update_stmt_sql);
+                        if (!$update_stmt) {
+                            throw new Exception("Gagal menyiapkan query update status {$error_msg_prefix}: " . $conn->error);
+                        }
+                        $update_stmt->bind_param("sii", $action_type, $user['id'], $request_id);
                         
-                        $duration_display = formatDuration($duration_minutes);
-                        $success = "Permohonan input jam manual dari " . htmlspecialchars($manual_request['employee_name']) . " berhasil disetujui! Durasi: " . $duration_display;
-                        sendDiscordNotification("Input jam manual " . $manual_request['employee_name'] . " telah disetujui oleh " . $user['name'] . " (Durasi: " . $duration_display . ")", "success");
-                    } else {
-                        throw new Exception("Gagal mengupdate status permohonan");
+                        if ($update_stmt->execute() && $update_stmt->affected_rows > 0) {
+                            $conn->commit(); // Commit transaksi
+                            $success = $success_msg_prefix . htmlspecialchars($request_data['employee_name']) . " berhasil di" . ($action_type === 'approved' ? "setujui" : "tolak") . "!";
+                            
+                            // Tentukan tipe pesan berdasarkan aksi
+                            if ($action_type === 'rejected') {
+                                $message_type = 'error'; // Ubah menjadi 'error' (merah)
+                            } else {
+                                $message_type = 'success'; // Tetap 'success' (hijau)
+                            }
+
+                            sendDiscordNotification("{$notification_prefix} " . $request_data['employee_name'] . " telah di" . ($action_type === 'approved' ? "setujui" : "tolak") . " oleh " . $user['name'] . ($table === 'manual_duty_requests' && $action_type === 'approved' ? " (Durasi: " . formatDuration($duration_minutes) . ")" : ""), ($action_type === 'approved' ? "success" : "warning"));
+                        } else {
+                            throw new Exception("Gagal mengupdate status {$error_msg_prefix}! Mungkin sudah diproses sebelumnya. Error: " . $update_stmt->error);
+                        }
+                        $update_stmt->close();
+
+                    } catch (Exception $e) {
+                        $conn->rollback(); // Rollback transaksi jika ada error
+                        $error = "Terjadi kesalahan saat memproses {$error_msg_prefix}: " . $e->getMessage();
+                        $message_type = 'error';
                     }
                 } else {
-                    throw new Exception("Gagal menambahkan ke duty logs");
+                    $error = "Permohonan tidak ditemukan atau sudah diproses!";
+                    $message_type = 'error';
                 }
-            } else {
-                throw new Exception("Permohonan tidak ditemukan atau sudah diproses");
             }
-        } catch (Exception $e) {
-            // Rollback transaction
-            $conn->rollback();
-            $error = "Gagal menyetujui permohonan input jam manual: " . $e->getMessage();
         }
-    } else {
-        $error = "ID permohonan tidak valid!";
     }
 }
 
-if ($_POST['action'] ?? '' === 'reject_manual_duty') {
-    $request_id = (int)($_POST['request_id'] ?? 0);
-    if ($request_id > 0) {
-        // First check if request exists and is pending
-        $stmt = $conn->prepare("SELECT mdr.*, e.name as employee_name FROM manual_duty_requests mdr JOIN employees e ON mdr.employee_id = e.id WHERE mdr.id = ? AND mdr.status = 'pending'");
-        $stmt->bind_param("i", $request_id);
-        $stmt->execute();
-        $request_data = $stmt->get_result()->fetch_assoc();
-        
-        if ($request_data) {
-            // Only update the request status, do NOT insert into duty_logs
-            $stmt = $conn->prepare("UPDATE manual_duty_requests SET status = 'rejected', approved_by = ?, approved_at = NOW() WHERE id = ? AND status = 'pending'");
-            $stmt->bind_param("ii", $user['id'], $request_id);
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $success = "Permohonan input jam manual dari " . htmlspecialchars($request_data['employee_name']) . " berhasil ditolak!";
-                sendDiscordNotification("Input jam manual " . $request_data['employee_name'] . " telah ditolak oleh " . $user['name'], "warning");
-            } else {
-                $error = "Gagal menolak permohonan input jam manual! Mungkin sudah diproses sebelumnya.";
-            }
-        } else {
-            $error = "Permohonan input jam manual tidak ditemukan atau sudah diproses!";
-        }
-    } else {
-        $error = "ID permohonan tidak valid!";
-    }
-}
+
+// --- Pengambilan Data Permohonan untuk Tampilan ---
+// Pastikan semua pengambilan data ditangani dengan benar untuk menghindari 'Call to a member function fetch_all() on bool'
 
 // Get pending leave requests
-$leave_requests = $conn->query("
+$leave_requests = [];
+$query_leave = "
     SELECT lr.*, e.name as employee_name, e.role as employee_role
     FROM leave_requests lr
     JOIN employees e ON lr.employee_id = e.id
     WHERE lr.status = 'pending'
     ORDER BY lr.created_at ASC
-")->fetch_all(MYSQLI_ASSOC);
+";
+$result_leave = $conn->query($query_leave);
+if ($result_leave === false) {
+    $error = "Gagal mengambil permohonan cuti: " . $conn->error;
+    $message_type = 'error';
+} else {
+    $leave_requests = $result_leave->fetch_all(MYSQLI_ASSOC);
+    $result_leave->free(); // Bebaskan hasil query
+}
 
 // Get pending resignation requests
-$resignation_requests = $conn->query("
+$resignation_requests = [];
+$query_resignation = "
     SELECT rr.*, e.name as employee_name, e.role as employee_role
     FROM resignation_requests rr
     JOIN employees e ON rr.employee_id = e.id
     WHERE rr.status = 'pending'
     ORDER BY rr.created_at ASC
-")->fetch_all(MYSQLI_ASSOC);
+";
+$result_resignation = $conn->query($query_resignation);
+if ($result_resignation === false) {
+    $error = "Gagal mengambil permohonan resign: " . $conn->error;
+    $message_type = 'error';
+} else {
+    $resignation_requests = $result_resignation->fetch_all(MYSQLI_ASSOC);
+    $result_resignation->free(); // Bebaskan hasil query
+}
 
 // Get pending manual duty requests
-$manual_duty_requests = $conn->query("
+$manual_duty_requests = [];
+$query_manual = "
     SELECT mdr.*, e.name as employee_name, e.role as employee_role
     FROM manual_duty_requests mdr
     JOIN employees e ON mdr.employee_id = e.id
     WHERE mdr.status = 'pending'
     ORDER BY mdr.created_at ASC
-")->fetch_all(MYSQLI_ASSOC);
+";
+$result_manual = $conn->query($query_manual);
+if ($result_manual === false) {
+    $error = "Gagal mengambil permohonan input jam manual: " . $conn->error;
+    $message_type = 'error';
+} else {
+    $manual_duty_requests = $result_manual->fetch_all(MYSQLI_ASSOC);
+    $result_manual->free(); // Bebaskan hasil query
+}
 ?>
 
 <!DOCTYPE html>
@@ -258,11 +243,13 @@ $manual_duty_requests = $conn->query("
                 <p>Kelola semua permohonan dari anggota</p>
             </div>
 
-            <?php if (isset($success)): ?>
+            <?php 
+            // Menampilkan pesan berdasarkan message_type
+            if (isset($success) && $message_type === 'success'): ?>
                 <div class="success-message"><?= htmlspecialchars($success) ?></div>
-            <?php endif; ?>
-            
-            <?php if (isset($error)): ?>
+            <?php elseif (isset($success) && $message_type === 'error'): // Jika success tapi type-nya error (misal penolakan) ?>
+                <div class="error-message"><?= htmlspecialchars($success) ?></div>
+            <?php elseif (isset($error)): // Jika ada error (pesan kegagalan) ?>
                 <div class="error-message"><?= htmlspecialchars($error) ?></div>
             <?php endif; ?>
 
@@ -278,7 +265,6 @@ $manual_duty_requests = $conn->query("
                 </button>
             </div>
 
-            <!-- Leave Requests Tab -->
             <div id="leave-tab" class="tab-content active">
                 <div class="card">
                     <div class="card-header">
@@ -336,7 +322,6 @@ $manual_duty_requests = $conn->query("
                 </div>
             </div>
 
-            <!-- Resignation Requests Tab -->
             <div id="resignation-tab" class="tab-content">
                 <div class="card">
                     <div class="card-header">
@@ -394,127 +379,126 @@ $manual_duty_requests = $conn->query("
                             </div>
                             <?php endforeach; ?>
                         <?php endif; ?>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Manual Duty Requests Tab -->
-            <div id="manual-tab" class="tab-content">
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Permohonan Input Jam Manual</h3>
-                    </div>
-                    <div class="card-content">
-                        <?php if (empty($manual_duty_requests)): ?>
-                            <div class="no-data">Tidak ada permohonan input jam manual yang pending</div>
-                        <?php else: ?>
-                            <?php foreach ($manual_duty_requests as $request): ?>
-                            <?php
-                            // Calculate duration for display
-                            $start_timestamp = strtotime($request['start_time']);
-                            $end_timestamp = strtotime($request['end_time']);
-                            if ($end_timestamp <= $start_timestamp) {
-                                $end_timestamp += 24 * 60 * 60;
-                            }
-                            $duration_minutes = ($end_timestamp - $start_timestamp) / 60;
-                            $duration_display = formatDuration($duration_minutes);
-                            $is_overnight = $end_timestamp > strtotime($request['start_time']) + 12 * 60 * 60;
-                            ?>
-                            <div class="request-item">
-                                <div class="request-header">
-                                    <div class="employee-info">
-                                        <h4><?= htmlspecialchars($request['employee_name']) ?></h4>
-                                        <span class="role-badge role-<?= $request['employee_role'] ?>"><?= getRoleDisplayName($request['employee_role']) ?></span>
+                <div id="manual-tab" class="tab-content">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>Permohonan Input Jam Manual</h3>
+                        </div>
+                        <div class="card-content">
+                            <?php if (empty($manual_duty_requests)): ?>
+                                <div class="no-data">Tidak ada permohonan input jam manual yang pending</div>
+                            <?php else: ?>
+                                <?php foreach ($manual_duty_requests as $request): ?>
+                                <?php
+                                // Calculate duration for display
+                                $start_timestamp = strtotime($request['start_time']);
+                                $end_timestamp = strtotime($request['end_time']);
+                                if ($end_timestamp <= $start_timestamp) {
+                                    $end_timestamp += 24 * 60 * 60;
+                                }
+                                $duration_minutes = ($end_timestamp - $start_timestamp) / 60;
+                                $duration_display = formatDuration($duration_minutes);
+                                $is_overnight = $end_timestamp > strtotime($request['start_time']) + 12 * 60 * 60;
+                                ?>
+                                <div class="request-item">
+                                    <div class="request-header">
+                                        <div class="employee-info">
+                                            <h4><?= htmlspecialchars($request['employee_name']) ?></h4>
+                                            <span class="role-badge role-<?= $request['employee_role'] ?>"><?= getRoleDisplayName($request['employee_role']) ?></span>
+                                        </div>
+                                        <div class="request-dates">
+                                            <?= date('d/m/Y', strtotime($request['duty_date'])) ?>
+                                            (<?= date('H:i', strtotime($request['start_time'])) ?> - <?= date('H:i', strtotime($request['end_time'])) ?>)
+                                            <br><small><strong>Durasi:</strong> <?= $duration_display ?><?= $is_overnight ? ' (shift malam)' : '' ?></small>
+                                        </div>
                                     </div>
-                                    <div class="request-dates">
-                                        <?= date('d/m/Y', strtotime($request['duty_date'])) ?>
-                                        (<?= date('H:i', strtotime($request['start_time'])) ?> - <?= date('H:i', strtotime($request['end_time'])) ?>)
-                                        <br><small><strong>Durasi:</strong> <?= $duration_display ?><?= $is_overnight ? ' (shift malam)' : '' ?></small>
+                                    
+                                    <div class="request-reason">
+                                        <strong>Alasan:</strong> <?= htmlspecialchars($request['reason']) ?>
+                                    </div>
+                                    
+                                    <div class="request-meta">
+                                        Diajukan: <?= date('d/m/Y H:i', strtotime($request['created_at'])) ?>
+                                    </div>
+                                    
+                                    <div class="request-actions">
+                                        <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menyetujui dan menambahkan jam duty ini?\nDurasi: <?= $duration_display ?><?= $is_overnight ? ' (shift malam)' : '' ?>')">
+                                            <input type="hidden" name="action" value="approve_manual_duty">
+                                            <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
+                                            <button type="submit" class="btn btn-success btn-sm">Setujui</button>
+                                        </form>
+                                        <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menolak permohonan input jam manual ini?')">
+                                            <input type="hidden" name="action" value="reject_manual_duty">
+                                            <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
+                                            <button type="submit" class="btn btn-danger btn-sm">Tolak</button>
+                                        </form>
                                     </div>
                                 </div>
-                                
-                                <div class="request-reason">
-                                    <strong>Alasan:</strong> <?= htmlspecialchars($request['reason']) ?>
-                                </div>
-                                
-                                <div class="request-meta">
-                                    Diajukan: <?= date('d/m/Y H:i', strtotime($request['created_at'])) ?>
-                                </div>
-                                
-                                <div class="request-actions">
-                                    <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menyetujui dan menambahkan jam duty ini?\nDurasi: <?= $duration_display ?><?= $is_overnight ? ' (shift malam)' : '' ?>')">
-                                        <input type="hidden" name="action" value="approve_manual_duty">
-                                        <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
-                                        <button type="submit" class="btn btn-success btn-sm">Setujui</button>
-                                    </form>
-                                    <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menolak permohonan input jam manual ini?')">
-                                        <input type="hidden" name="action" value="reject_manual_duty">
-                                        <input type="hidden" name="request_id" value="<?= $request['id'] ?>">
-                                        <button type="submit" class="btn btn-danger btn-sm">Tolak</button>
-                                    </form>
-                                </div>
-                            </div>
-                            <?php endforeach; ?>
-                        <?php endif; ?>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </main>
-    </div>
+            </main>
+        </div>
 
-    <script src="script.js"></script>
-    <script>
-        function showTab(tabName) {
-            // Hide all tab contents
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            
-            // Remove active class from all tab buttons
-            document.querySelectorAll('.tab-button').forEach(button => {
-                button.classList.remove('active');
-            });
-            
-            // Show selected tab content
-            document.getElementById(tabName + '-tab').classList.add('active');
-            
-            // Add active class to clicked button
-            event.target.classList.add('active');
-        }
-        
-        // Prevent double submission and show loading state
-        document.addEventListener('DOMContentLoaded', function() {
-            const forms = document.querySelectorAll('form');
-            
-            forms.forEach(form => {
-                form.addEventListener('submit', function(e) {
-                    const submitBtn = this.querySelector('button[type="submit"]');
-                    if (submitBtn) {
-                        // Disable button to prevent double submission
-                        submitBtn.disabled = true;
-                        
-                        // Show loading state
-                        const originalText = submitBtn.textContent;
-                        submitBtn.innerHTML = '<span class="spinner"></span> Memproses...';
-                        
-                        // Re-enable after 3 seconds as fallback
-                        setTimeout(() => {
-                            submitBtn.disabled = false;
-                            submitBtn.textContent = originalText;
-                        }, 3000);
-                    }
+        <script src="script.js"></script>
+        <script>
+            function showTab(tabName) {
+                // Hide all tab contents
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.classList.remove('active');
                 });
-            });
-            
-            // Auto-refresh page after successful action (optional)
-            const successMessage = document.querySelector('.success-message');
-            if (successMessage) {
-                setTimeout(() => {
-                    // Fade out success message
-                    successMessage.style.opacity = '0.5';
-                }, 3000);
+                
+                // Remove active class from all tab buttons
+                document.querySelectorAll('.tab-button').forEach(button => {
+                    button.classList.remove('active');
+                });
+                
+                // Show selected tab content
+                document.getElementById(tabName + '-tab').classList.add('active');
+                
+                // Add active class to clicked button
+                event.target.classList.add('active');
             }
-        });
-    </script>
-</body>
-</html>
+            
+            // Prevent double submission and show loading state
+            document.addEventListener('DOMContentLoaded', function() {
+                const forms = document.querySelectorAll('form');
+                
+                forms.forEach(form => {
+                    form.addEventListener('submit', function(e) {
+                        const submitBtn = this.querySelector('button[type="submit"]');
+                        if (submitBtn) {
+                            // Disable button to prevent double submission
+                            submitBtn.disabled = true;
+                            
+                            // Show loading state
+                            const originalText = submitBtn.textContent;
+                            submitBtn.innerHTML = '<span class="spinner"></span> Memproses...';
+                            
+                            // Re-enable after 3 seconds as fallback
+                            setTimeout(() => {
+                                submitBtn.disabled = false;
+                                submitBtn.textContent = originalText;
+                            }, 3000);
+                        }
+                    });
+                });
+                
+                // Auto-refresh page after successful action (optional)
+                const successMessage = document.querySelector('.success-message');
+                if (successMessage) {
+                    setTimeout(() => {
+                        // Fade out success message
+                        successMessage.style.opacity = '0.5';
+                    }, 3000);
+                }
+            });
+        </script>
+    </body>
+    </html>
