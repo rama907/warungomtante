@@ -25,7 +25,14 @@ if ($_POST['action'] ?? '' === 'submit_resignation') {
         $stmt->bind_param("issssss", $user['id'], $resignation_date, $resignation_date, $reason_ooc, $reason_ic, $passport, $cid);
         
         if ($stmt->execute()) {
-            sendDiscordNotification($user['name'] . " mengajukan permohonan resign pada tanggal " . $resignation_date, "danger");
+            sendDiscordNotification([
+                'employee_name' => $user['name'],
+                'resignation_date' => $resignation_date,
+                'passport' => $passport,
+                'cid' => $cid,
+                'reason_ooc' => $reason_ooc,
+                'reason_ic' => $reason_ic
+            ], 'resignation_request_submitted');
             $success = "Permohonan resign berhasil diajukan!";
         } else {
             $error = "Gagal mengajukan permohonan resign!";

@@ -113,7 +113,15 @@ if (($_POST['action'] ?? '') === 'update_sales') {
                             } else {
                                 error_log("Berhasil menyimpan record untuk tanggal: $formatted_date pada jam: $input_time");
                                 $success = "Data penjualan berhasil disimpan untuk tanggal " . date('d/m/Y', strtotime($formatted_date)) . " pada jam " . date('H:i', strtotime($input_time)) . "!";
-                                // sendDiscordNotification($user['name'] . " telah menginput data penjualan untuk tanggal " . $formatted_date . " pada jam " . date('H:i', strtotime($input_time)), "info");
+                                sendDiscordNotification([
+                                    'employee_name' => $user['name'],
+                                    'date' => $formatted_date,
+                                    'input_time' => $input_time,
+                                    'paket_makan_minum' => $paket_makan_minum,
+                                    'paket_snack' => $paket_snack,
+                                    'masak_paket' => $masak_paket,
+                                    'masak_snack' => $masak_snack
+                                ], 'sale_input');
                                 
                                 header("Location: " . $_SERVER['PHP_SELF'] . "?saved=1");
                                 exit;

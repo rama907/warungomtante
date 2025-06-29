@@ -48,8 +48,15 @@ if ($_POST['action'] ?? '' === 'submit_manual_duty') {
                 $duration_mins = $duration_minutes % 60;
                 $duration_text = $duration_hours . "j " . $duration_mins . "m";
                 
-                sendDiscordNotification($user['name'] . " mengajukan input jam manual untuk tanggal " . $duty_date . " (Durasi: " . $duration_text . ")", "info");
-                $success = "Permohonan input jam manual berhasil diajukan! Durasi: " . $duration_text;
+                sendDiscordNotification([
+                'employee_name' => $user['name'],
+                'duty_date' => $duty_date,
+                'start_time' => $start_time,
+                'end_time' => $end_time,
+                'duration_text' => $duration_text,
+                'reason' => $reason
+            ], 'manual_duty_request_submitted');
+            $success = "Permohonan input jam manual berhasil diajukan! Durasi: " . $duration_text;
             } else {
                 $error = "Gagal mengajukan permohonan input jam manual!";
             }

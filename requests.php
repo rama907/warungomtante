@@ -142,7 +142,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 $message_type = 'success'; // Tetap 'success' (hijau)
                             }
 
-                            sendDiscordNotification("{$notification_prefix} " . $request_data['employee_name'] . " telah di" . ($action_type === 'approved' ? "setujui" : "tolak") . " oleh " . $user['name'] . ($table === 'manual_duty_requests' && $action_type === 'approved' ? " (Durasi: " . formatDuration($duration_minutes) . ")" : ""), ($action_type === 'approved' ? "success" : "warning"));
+                            sendDiscordNotification([
+                                'employee_name' => $request_data['employee_name'],
+                                'request_type' => ($table === 'leave_requests' ? 'Cuti' : ($table === 'resignation_requests' ? 'Resign' : 'Input Jam Manual')),
+                                'status' => $action_type,
+                                'approved_by_name' => $user['name'],
+                            ], 'request_status_update');
                         } else {
                             throw new Exception("Gagal mengupdate status {$error_msg_prefix}! Mungkin sudah diproses sebelumnya. Error: " . $update_stmt->error);
                         }

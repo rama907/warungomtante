@@ -23,7 +23,13 @@ if ($_POST['action'] ?? '' === 'submit_leave') {
         $stmt->bind_param("issss", $user['id'], $start_date, $end_date, $reason_ooc, $reason_ic);
         
         if ($stmt->execute()) {
-            sendDiscordNotification($user['name'] . " mengajukan permohonan cuti dari " . $start_date . " sampai " . $end_date, "warning");
+            sendDiscordNotification([
+                'employee_name' => $user['name'],
+                'start_date' => $start_date,
+                'end_date' => $end_date,
+                'reason_ooc' => $reason_ooc,
+                'reason_ic' => $reason_ic
+            ], 'leave_request_submitted');
             $success = "Permohonan cuti berhasil diajukan!";
         } else {
             $error = "Gagal mengajukan permohonan cuti!";

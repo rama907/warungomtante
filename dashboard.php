@@ -22,7 +22,7 @@ if ($_POST['action'] ?? '' === 'on_duty') {
         $stmt->bind_param("i", $user['id']);
         $stmt->execute();
         
-        sendDiscordNotification($user['name'] . " telah mulai bertugas", "info");
+        sendDiscordNotification(['employee_name' => $user['name'], 'event_type' => 'clock_in'], 'clock_event');
         header('Location: dashboard.php');
         exit;
     }
@@ -45,7 +45,21 @@ if ($_POST['action'] ?? '' === 'off_duty') {
         $stmt->bind_param("i", $user['id']);
         $stmt->execute();
         
-        sendDiscordNotification($user['name'] . " telah selesai bertugas", "info");
+        $stmt_log = $conn->prepare("SELECT duty_start FROM duty_logs WHERE employee_id = ? AND duty_end IS NOT NULL ORDER BY id DESC LIMIT 1");
+        $stmt_log->bind_param("i", $user['id']);
+        $stmt_log->execute();
+        $last_log = $stmt_log->get_result()->fetch_assoc();
+        $stmt_log->close();
+
+        $duration_text = 'N/A';
+        if ($last_log) {
+            $start_dt = new DateTime($last_log['duty_start']);
+            $end_dt = new DateTime(); // Waktu sekarang
+            $interval = $start_dt->diff($end_dt);
+            $duration_text = $interval->h . 'j ' . $interval->i . 'm ' . $interval->s . 'd'; // Menit dan detik untuk akurasi
+        }
+
+        sendDiscordNotification(['employee_name' => $user['name'], 'event_type' => 'clock_out', 'duration' => $duration_text], 'clock_event');
         header('Location: dashboard.php');
         exit;
     }

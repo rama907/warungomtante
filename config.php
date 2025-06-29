@@ -64,35 +64,210 @@ function getRoleDisplayName($role) {
     return $roles[$role] ?? ucfirst($role);
 }
 
-// Function to send notification (placeholder for Discord integration)
-function sendDiscordNotification($message, $type = 'info') {
-    // This would integrate with Discord webhook
-    // For now, we'll just log it with better formatting
-    $timestamp = date('Y-m-d H:i:s');
-    $log_message = "[$timestamp] Discord Notification [$type]: $message";
-    error_log($log_message);
-    
-    // You can add actual Discord webhook integration here
-    // Example:
-    /*
-    $webhook_url = "YOUR_DISCORD_WEBHOOK_URL";
-    $data = [
-        'content' => $message,
-        'username' => 'Warung Om Tante Bot'
+// Fungsi untuk mengirim notifikasi ke Discord
+function sendDiscordNotification($data, $type = 'info') {
+    // URL Webhook Discord Anda
+    $webhook_url = 'https://discord.com/api/webhooks/1387832939005345923/mReLuAr1j85i7IvkUoxg5EvmdSZHOWqiiXwJ3dWMVJYdZ6zbC5Ey6DVtfe7EsufbsLMB';
+    $username = "Warung Om Tante Bot";
+    $avatar_url = ""; // GANTI DENGAN URL AVATAR BOT ANDA, misal logo warung
+
+    // Definisikan warna untuk setiap tipe notifikasi
+    $colors = [
+        'info' => 3447003,    // Biru (contoh: Clock In/Out)
+        'success' => 3066993, // Hijau (contoh: Disetujui)
+        'warning' => 16776960,// Kuning (contoh: Permohonan Cuti)
+        'danger' => 15158332, // Merah (contoh: Permohonan Resign, Ditolak)
+        'employee_action' => 5793266, // Ungu (contoh: Perubahan Peran, Nonaktif Anggota)
     ];
+    $color = $colors[$type] ?? 0; // Ambil warna berdasarkan tipe, default hitam
+
+    // Inisialisasi embed dasar
+    $embed = [
+        'title' => '',
+        'description' => '',
+        'color' => $color,
+        'timestamp' => date('c'), // Waktu saat notifikasi dikirim
+        'footer' => [
+            'text' => 'Warung Om Tante Management System',
+        ],
+    ];
+
+    // Logika untuk mengisi embed berdasarkan 'type' dan 'data'
+    switch ($type) {
+        case 'clock_event': // Data: ['employee_name', 'event_type', 'duration']
+            $employee_name = htmlspecialchars($data['employee_name']);
+            if ($data['event_type'] === 'clock_in') {
+                $embed['title'] = "⏰ Karyawan Mulai Bertugas!";
+                $embed['description'] = "**{$employee_name}** telah mulai bertugas.";
+                $embed['color'] = $colors['info'];
+                $embed['fields'] = [
+                    ['name' => 'Waktu Mulai', 'value' => date('H:i:s'), 'inline' => true],
+                    ['name' => 'Status', 'value' => '🟢 On Duty', 'inline' => true],
+                ];
+            } elseif ($data['event_type'] === 'clock_out') {
+                $embed['title'] = "⏸️ Karyawan Selesai Bertugas!";
+                $embed['description'] = "**{$employee_name}** telah selesai bertugas.";
+                $embed['color'] = $colors['info'];
+                $embed['fields'] = [
+                    ['name' => 'Waktu Selesai', 'value' => date('H:i:s'), 'inline' => true],
+                    ['name' => 'Durasi Tugas', 'value' => htmlspecialchars($data['duration']), 'inline' => true],
+                    ['name' => 'Status', 'value' => '🔴 Off Duty', 'inline' => true],
+                ];
+            }
+            break;
+
+        case 'leave_request_submitted': // Data: ['employee_name', 'start_date', 'end_date', 'reason_ooc', 'reason_ic']
+            $employee_name = htmlspecialchars($data['employee_name']);
+            $embed['title'] = "📝 Permohonan Cuti Baru!";
+            $embed['description'] = "Karyawan **{$employee_name}** telah mengajukan permohonan cuti.";
+            $embed['color'] = $colors['warning'];
+            $embed['fields'] = [
+                ['name' => 'Periode Cuti', 'value' => date('d/m/Y', strtotime($data['start_date'])) . ' - ' . date('d/m/Y', strtotime($data['end_date'])), 'inline' => true],
+                ['name' => 'Status', 'value' => '🟡 Pending', 'inline' => true],
+                ['name' => 'Alasan (OOC)', 'value' => empty($data['reason_ooc']) ? '-' : htmlspecialchars($data['reason_ooc'])],
+                ['name' => 'Alasan (IC)', 'value' => empty($data['reason_ic']) ? '-' : htmlspecialchars($data['reason_ic'])],
+            ];
+            break;
+        
+        case 'resignation_request_submitted': // Data: ['employee_name', 'resignation_date', 'passport', 'cid', 'reason_ooc', 'reason_ic']
+            $employee_name = htmlspecialchars($data['employee_name']);
+            $embed['title'] = "📄 Permohonan Resign Baru!";
+            $embed['description'] = "Karyawan **{$employee_name}** telah mengajukan permohonan resign.";
+            $embed['color'] = $colors['danger'];
+            $embed['fields'] = [
+                ['name' => 'Tanggal Resign', 'value' => date('d/m/Y', strtotime($data['resignation_date'])), 'inline' => true],
+                ['name' => 'Status', 'value' => '🟡 Pending', 'inline' => true],
+                ['name' => 'Passport', 'value' => htmlspecialchars($data['passport']), 'inline' => true],
+                ['name' => 'CID', 'value' => htmlspecialchars($data['cid']), 'inline' => true],
+                ['name' => 'Alasan (OOC)', 'value' => empty($data['reason_ooc']) ? '-' : htmlspecialchars($data['reason_ooc'])],
+                ['name' => 'Alasan (IC)', 'value' => empty($data['reason_ic']) ? '-' : htmlspecialchars($data['reason_ic'])],
+            ];
+            break;
+
+        case 'manual_duty_request_submitted': // Data: ['employee_name', 'duty_date', 'start_time', 'end_time', 'duration_text', 'reason']
+            $employee_name = htmlspecialchars($data['employee_name']);
+            $embed['title'] = "⏱️ Permohonan Input Jam Manual Baru!";
+            $embed['description'] = "Karyawan **{$employee_name}** telah mengajukan permohonan input jam manual.";
+            $embed['color'] = $colors['info'];
+            $embed['fields'] = [
+                ['name' => 'Tanggal', 'value' => date('d/m/Y', strtotime($data['duty_date'])), 'inline' => true],
+                ['name' => 'Periode Waktu', 'value' => date('H:i', strtotime($data['start_time'])) . ' - ' . date('H:i', strtotime($data['end_time'])), 'inline' => true],
+                ['name' => 'Durasi', 'value' => htmlspecialchars($data['duration_text']), 'inline' => true],
+                ['name' => 'Status', 'value' => '🟡 Pending', 'inline' => true],
+                ['name' => 'Alasan', 'value' => empty($data['reason']) ? '-' : htmlspecialchars($data['reason'])],
+            ];
+            break;
+
+        case 'request_status_update': // Data: ['employee_name', 'request_type', 'status', 'approved_by_name', 'duration']
+            $employee_name = htmlspecialchars($data['employee_name']);
+            $approver_name = htmlspecialchars($data['approved_by_name']);
+            $status_text = '';
+            $icon = '';
+            $color_status = $colors['info'];
+            $additional_field = [];
+
+            if ($data['status'] === 'approved') {
+                $status_text = 'Disetujui';
+                $icon = '✅';
+                $color_status = $colors['success'];
+            } elseif ($data['status'] === 'rejected') {
+                $status_text = 'Ditolak';
+                $icon = '❌';
+                $color_status = $colors['danger'];
+            }
+            
+            $embed['title'] = "{$icon} Permohonan {$data['request_type']} Diperbarui!";
+            $embed['description'] = "Permohonan **{$data['request_type']}** dari **{$employee_name}** telah **{$status_text}** oleh **{$approver_name}**.";
+            $embed['color'] = $color_status;
+            $embed['fields'] = [
+                ['name' => 'Karyawan', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Status', 'value' => "{$icon} {$status_text}", 'inline' => true],
+                ['name' => 'Diproses Oleh', 'value' => $approver_name, 'inline' => true],
+            ];
+
+            if ($data['request_type'] === 'Input Jam Manual' && $data['status'] === 'approved' && !empty($data['duration'])) {
+                $embed['fields'][] = ['name' => 'Durasi Jam Manual', 'value' => htmlspecialchars($data['duration']), 'inline' => true];
+            }
+            break;
+
+        case 'admin_employee_action': // Data: ['action_type', 'target_employee_name', 'old_value', 'new_value', 'admin_name']
+            $admin_name = htmlspecialchars($data['admin_name']);
+            $target_name = htmlspecialchars($data['target_employee_name']);
+            $embed['color'] = $colors['employee_action'];
+            
+            if ($data['action_type'] === 'update_role') {
+                $old_role_display = getRoleDisplayName($data['old_value']);
+                $new_role_display = getRoleDisplayName($data['new_value']);
+                $embed['title'] = "👥 Perubahan Jabatan Anggota!";
+                $embed['description'] = "Jabatan **{$target_name}** telah diubah oleh **{$admin_name}**.";
+                $embed['fields'] = [
+                    ['name' => 'Anggota', 'value' => $target_name, 'inline' => true],
+                    ['name' => 'Jabatan Lama', 'value' => $old_role_display, 'inline' => true],
+                    ['name' => 'Jabatan Baru', 'value' => $new_role_display, 'inline' => true],
+                ];
+            } elseif ($data['action_type'] === 'deactivate_employee') {
+                $embed['title'] = "⛔ Anggota Dinonaktifkan!";
+                $embed['description'] = "Anggota **{$target_name}** telah dinonaktifkan oleh **{$admin_name}**.";
+                $embed['fields'] = [
+                    ['name' => 'Anggota', 'value' => $target_name, 'inline' => true],
+                    ['name' => 'Status', 'value' => '🔴 Tidak Aktif', 'inline' => true],
+                ];
+            }
+            break;
+        
+        case 'admin_system_action': // Data: ['action_type', 'admin_name']
+            $admin_name = htmlspecialchars($data['admin_name']);
+            $embed['color'] = $colors['employee_action'];
+            if ($data['action_type'] === 'reset_weekly_data') {
+                $embed['title'] = "🔄 Data Mingguan Direset!";
+                $embed['description'] = "Data jam tugas dan penjualan mingguan telah direset oleh **{$admin_name}**.";
+            }
+            break;
+
+        case 'sale_input': // Data: ['employee_name', 'date', 'input_time', 'paket_makan_minum', 'paket_snack', 'masak_paket', 'masak_snack']
+            $employee_name = htmlspecialchars($data['employee_name']);
+            $total_items = $data['paket_makan_minum'] + $data['paket_snack'] + $data['masak_paket'] + $data['masak_snack'];
+            $embed['title'] = "💰 Data Penjualan Baru Diinput!";
+            $embed['description'] = "**{$employee_name}** telah menginput data penjualan.";
+            $embed['color'] = $colors['success'];
+            $embed['fields'] = [
+                ['name' => 'Tanggal', 'value' => date('d/m/Y', strtotime($data['date'])), 'inline' => true],
+                ['name' => 'Waktu Input', 'value' => date('H:i:s', strtotime($data['input_time'])), 'inline' => true],
+                ['name' => 'Paket M&M', 'value' => $data['paket_makan_minum'], 'inline' => true],
+                ['name' => 'Paket Snack', 'value' => $data['paket_snack'], 'inline' => true],
+                ['name' => 'Masak Paket', 'value' => $data['masak_paket'], 'inline' => true],
+                ['name' => 'Masak Snack', 'value' => $data['masak_snack'], 'inline' => true],
+                ['name' => 'Total Item', 'value' => $total_items, 'inline' => true],
+            ];
+            break;
+
+        default:
+            // Fallback untuk pesan yang tidak dikenali
+            $embed['title'] = "ℹ️ Notifikasi Umum";
+            $embed['description'] = htmlspecialchars($data); // Data adalah string pesan langsung
+            $embed['color'] = $colors['info'];
+            break;
+    }
     
+    // Payload akhir untuk Discord Webhook
+    $discord_payload = json_encode([
+        'username' => $username,
+        'avatar_url' => $avatar_url,
+        'embeds' => [$embed],
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
     $options = [
         'http' => [
-            'header' => "Content-type: application/json\r\n",
-            'method' => 'POST',
-            'content' => json_encode($data)
-        ]
+            'header'  => "Content-type: application/json\r\n",
+            'method'  => 'POST',
+            'content' => $discord_payload,
+        ],
     ];
-    
+
     $context = stream_context_create($options);
     @file_get_contents($webhook_url, false, $context);
-    */
 }
+
 // Function to get total pending requests
 function getPendingRequestCount() {
     global $conn;
