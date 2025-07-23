@@ -46,7 +46,8 @@ $duty_21_hour_bonus = 1000000;
 $stmt = $conn->prepare("
     SELECT e.id, e.name, e.role,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-           COALESCE(sales_summary.total_paket_makan_minum, 0) as total_paket_makan_minum,
+           COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
+           COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
            COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
            COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
            COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
@@ -62,7 +63,8 @@ $stmt = $conn->prepare("
     LEFT JOIN (
         SELECT
             employee_id,
-            SUM(paket_makan_minum) as total_paket_makan_minum,
+            SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
+            SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
             SUM(paket_snack) as total_paket_snack,
             SUM(masak_paket) as total_masak_paket,
             SUM(masak_snack) as total_masak_snack
@@ -72,7 +74,13 @@ $stmt = $conn->prepare("
     WHERE e.id = ? AND e.status = 'active'
     GROUP BY e.id
 ");
-$stmt->bind_param("i", $user['id']);
+if (!$stmt) {
+    // --- KODE DIAGNOSTIK SEMENTARA ---
+    // error_log("Error preparing payslip summary statement: " . $conn->error);
+    // die("Fatal Error: Gagal menyiapkan query slip gaji. MySQL Error: " . $conn->error);
+    // --- AKHIR KODE DIAGNOSTIK SEMENTARA ---
+}
+$stmt->bind_param("i", $user['id']); // Ini baris 75
 $stmt->execute();
 $employee_data_summary = $stmt->get_result()->fetch_assoc();
 $stmt->close();
@@ -84,7 +92,8 @@ if (!$employee_data_summary) {
         'name' => $user['name'],
         'role' => $user['role'],
         'total_duty_minutes' => 0,
-        'total_paket_makan_minum' => 0,
+        'total_paket_makan_minum_warga' => 0,
+        'total_paket_makan_minum_instansi' => 0,
         'total_paket_snack' => 0,
         'total_masak_paket' => 0,
         'total_masak_snack' => 0
@@ -93,7 +102,8 @@ if (!$employee_data_summary) {
 
 $employee_role_summary = $employee_data_summary['role'];
 $total_duty_minutes_summary = $employee_data_summary['total_duty_minutes'];
-$total_paket_makan_minum_summary = $employee_data_summary['total_paket_makan_minum'];
+$total_paket_makan_minum_warga_summary = $employee_data_summary['total_paket_makan_minum_warga'];
+$total_paket_makan_minum_instansi_summary = $employee_data_summary['total_paket_makan_minum_instansi'];
 $total_paket_snack_summary = $employee_data_summary['total_paket_snack'];
 $total_masak_paket_summary = $employee_data_summary['total_masak_paket'];
 $total_masak_snack_summary = $employee_data_summary['total_masak_snack'];
@@ -130,10 +140,10 @@ if ($total_duty_minutes_summary > $min_duty_minutes_for_bonus) {
 }
 
 // Perhitungan Bonus Penjualan
-$total_penjualan_paket_summary = $total_paket_makan_minum_summary + $total_paket_snack_summary + $total_masak_paket_summary + $total_masak_snack_summary;
+$total_penjualan_paket_summary = $total_paket_makan_minum_warga_summary + $total_paket_makan_minum_instansi_summary + $total_paket_snack_summary + $total_masak_paket_summary + $total_masak_snack_summary;
 $bonus_penjualan_summary = 0;
 if ($total_penjualan_paket_summary >= $sales_bonus_threshold) {
-    $bonus_penjualan_summary = $sales_bonus_amount;
+    $bonus_penjualan_summary = $sales_bonus_amount; // PERBAIKAN DI SINI
 }
 
 // Hitung Total Nominal Bonus

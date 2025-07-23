@@ -62,7 +62,8 @@ $duty_21_hour_bonus = 1000000;
 $stmt = $conn->prepare("
     SELECT e.id, e.name, e.role,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-           COALESCE(sales_summary.total_paket_makan_minum, 0) as total_paket_makan_minum,
+           COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
+           COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
            COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
            COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
            COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
@@ -78,7 +79,8 @@ $stmt = $conn->prepare("
     LEFT JOIN (
         SELECT
             employee_id,
-            SUM(paket_makan_minum) as total_paket_makan_minum,
+            SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
+            SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
             SUM(paket_snack) as total_paket_snack,
             SUM(masak_paket) as total_masak_paket,
             SUM(masak_snack) as total_masak_snack
@@ -86,7 +88,7 @@ $stmt = $conn->prepare("
         GROUP BY employee_id
     ) as sales_summary ON e.id = sales_summary.employee_id
     WHERE e.id = ? AND e.status = 'active'
-    GROUP BY e.id -- Group by e.id even if only one employee, to handle aggregation in select clause
+    GROUP BY e.id
 ");
 $stmt->bind_param("i", $employee_id_to_view);
 $stmt->execute();
@@ -99,7 +101,8 @@ if (!$employee_data) {
 
 $employee_role = $employee_data['role'];
 $total_duty_minutes = $employee_data['total_duty_minutes'];
-$total_paket_makan_minum = $employee_data['total_paket_makan_minum'];
+$total_paket_makan_minum_warga = $employee_data['total_paket_makan_minum_warga'];
+$total_paket_makan_minum_instansi = $employee_data['total_paket_makan_minum_instansi'];
 $total_paket_snack = $employee_data['total_paket_snack'];
 $total_masak_paket = $employee_data['total_masak_paket'];
 $total_masak_snack = $employee_data['total_masak_snack'];
@@ -136,7 +139,7 @@ if ($total_duty_minutes > $min_duty_minutes_for_bonus) {
 }
 
 // Perhitungan Bonus Penjualan
-$total_penjualan_paket = $total_paket_makan_minum + $total_paket_snack + $total_masak_paket + $total_masak_snack;
+$total_penjualan_paket = $total_paket_makan_minum_warga + $total_paket_makan_minum_instansi + $total_paket_snack + $total_masak_paket + $total_masak_snack;
 $bonus_penjualan = 0;
 if ($total_penjualan_paket >= $sales_bonus_threshold) {
     $bonus_penjualan = $sales_bonus_amount;
@@ -144,6 +147,9 @@ if ($total_penjualan_paket >= $sales_bonus_threshold) {
 
 // Perhitungan Total Gaji
 $total_gajian = $gaji_pokok + $bonus_21_jam + $total_bonus_lembur + $bonus_penjualan;
+
+// Hitung Total Nominal Bonus
+$total_nominal_bonus = $bonus_21_jam + $total_bonus_lembur + $bonus_penjualan;
 
 // Fungsi format mata uang
 function formatRupiah($amount) {
@@ -183,17 +189,49 @@ function formatRupiah($amount) {
             margin-bottom: 30px;
             border-bottom: 2px solid #333;
             padding-bottom: 20px;
+            position: relative; /* Diperlukan untuk penempatan logo absolut */
+            display: flex; /* Menggunakan flexbox untuk layout yang lebih baik */
+            align-items: center; /* Pusatkan item secara vertikal */
+            justify-content: center; /* Pusatkan konten utama */
+            padding-left: 120px; /* Ruang untuk logo kiri */
+            padding-right: 120px; /* Ruang untuk logo kanan */
+            box-sizing: border-box; /* Pastikan padding dihitung dalam lebar */
         }
         .header h1 {
             margin: 0;
             font-size: 2em;
             color: #3b82f6;
+            flex-shrink: 0; /* Pastikan judul tidak menyusut */
         }
         .header p {
             margin: 5px 0 0;
             font-size: 0.9em;
             color: #666;
+            flex-shrink: 0; /* Pastikan paragraf tidak menyusut */
         }
+        .header-content-center {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            flex-grow: 1; /* Biarkan konten tengah mengambil ruang yang tersedia */
+        }
+        .logo-header {
+            position: absolute;
+            top: 50%; /* Pusatkan secara vertikal */
+            transform: translateY(-50%); /* Sesuaikan posisi vertikal */
+            width: 120px; /* Ukuran logo yang lebih besar */
+            height: auto;
+            object-fit: contain;
+            z-index: 10; /* Pastikan logo di atas elemen lain jika bertumpuk */
+        }
+        .logo-left {
+            left: 0px; /* Posisikan di paling kiri */
+        }
+        .logo-right {
+            right: 0px; /* Posisikan di paling kanan */
+        }
+        /* Clearfix tidak lagi diperlukan dengan flexbox di .header, tapi tidak ada salahnya jika ada */
         .section-title {
             font-size: 1.2em;
             font-weight: bold;
@@ -281,9 +319,13 @@ function formatRupiah($amount) {
 <body>
     <div class="payslip-container">
         <div class="header">
-            <h1>SLIP GAJI</h1>
-            <p>Warung Om Tante Management System</p>
-            <p>Periode: Akumulatif Hingga <?= date('d M Y') ?></p>
+            <img src="LOGO_WOT.png" alt="Logo Kiri" class="logo-header logo-left">
+            <div class="header-content-center">
+                <h1>SLIP GAJI</h1>
+                <p>Warung Om Tante</p>
+                <p>Periode: Akumulatif Hingga <?= date('d M Y') ?></p>
+            </div>
+            <img src="LOGO_WOT.png" alt="Logo Kanan" class="logo-header logo-right">
         </div>
 
         <div class="section-title">Informasi Karyawan</div>
@@ -330,8 +372,10 @@ function formatRupiah($amount) {
         <div class="info-grid">
             <div class="info-item"><span>Total Jam Duty:</span> <?= formatDuration($total_duty_minutes) ?></div>
             <div class="info-item"><span>Total Paket Terjual & Dimasak:</span> <?= $total_penjualan_paket ?> Paket</div>
-            <div class="info-item"><span>Bonus Lembur Per Jam:</span> <?= formatRupiah($nominal_bonus_lembur_perjam) ?></div>
-            <div class="info-item"><span>Total Penjualan M&M:</span> <?= $total_paket_makan_minum ?></div>
+            <div class="info-item"><span>Jam Lembur:</span> <?= $overtime_hours_display ?>j <?= $overtime_remaining_minutes ?>m</div>
+            <div class="info-item"><span>Total Nominal Bonus:</span> <?= formatRupiah($total_nominal_bonus) ?></div>
+            <div class="info-item"><span>Total Penjualan M&M Warga:</span> <?= $total_paket_makan_minum_warga ?></div>
+            <div class="info-item"><span>Total Penjualan M&M Instansi:</span> <?= $total_paket_makan_minum_instansi ?></div>
             <div class="info-item"><span>Total Penjualan Snack:</span> <?= $total_paket_snack ?></div>
             <div class="info-item"><span>Total Masak Paket:</span> <?= $total_masak_paket ?></div>
             <div class="info-item"><span>Total Masak Snack:</span> <?= $total_masak_snack ?></div>

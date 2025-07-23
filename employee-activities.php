@@ -42,7 +42,9 @@ $stmt = $conn->query("
         e.role,
         e.is_on_duty,
         COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-        COALESCE(sales_summary.total_paket_makan_minum, 0) as total_paket_makan_minum,
+        -- PERBAIKAN: Mengambil kolom paket makan minum yang baru
+        COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
+        COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
         COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
         COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
         COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
@@ -58,7 +60,9 @@ $stmt = $conn->query("
     LEFT JOIN (
         SELECT
             employee_id,
-            SUM(paket_makan_minum) as total_paket_makan_minum,
+            -- PERBAIKAN: Menjumlahkan kolom paket makan minum yang baru
+            SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
+            SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
             SUM(paket_snack) as total_paket_snack,
             SUM(masak_paket) as total_masak_paket,
             SUM(masak_snack) as total_masak_snack
@@ -77,12 +81,14 @@ $stmt = $conn->query("
         END,
         e.name
 ");
-$employee_activities = $stmt->fetch_all(MYSQLI_ASSOC);
+$employee_activities = $stmt->fetch_all(MYSQLI_ASSOC); // Baris 80 Anda
 $stmt->close(); // Tutup statement setelah mengambil hasil
 
 // Hitung total penjualan (paket makan minum + paket snack) secara keseluruhan
-$total_paket_terjual_keseluruhan = array_sum(array_column($employee_activities, 'total_paket_makan_minum')) +
-                        array_sum(array_column($employee_activities, 'total_paket_snack'));
+// PERBAIKAN: Menggunakan kolom paket makan minum yang baru untuk perhitungan total keseluruhan
+$total_paket_terjual_keseluruhan = array_sum(array_column($employee_activities, 'total_paket_makan_minum_warga')) +
+                                   array_sum(array_column($employee_activities, 'total_paket_makan_minum_instansi')) +
+                                   array_sum(array_column($employee_activities, 'total_paket_snack'));
 
 // Hitung total masak (masak paket + masak snack) secara keseluruhan
 $total_masak_keseluruhan = array_sum(array_column($employee_activities, 'total_masak_paket')) +
@@ -98,7 +104,9 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
             e.role,
             e.is_on_duty,
             COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-            COALESCE(sales_summary.total_paket_makan_minum, 0) as total_paket_makan_minum,
+            -- PERBAIKAN: Mengambil kolom paket makan minum yang baru untuk ekspor
+            COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
+            COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
             COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
             COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
             COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
@@ -114,7 +122,9 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         LEFT JOIN (
             SELECT
                 employee_id,
-                SUM(paket_makan_minum) as total_paket_makan_minum,
+                -- PERBAIKAN: Menjumlahkan kolom paket makan minum yang baru untuk ekspor
+                SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
+                SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
                 SUM(paket_snack) as total_paket_snack,
                 SUM(masak_paket) as total_masak_paket,
                 SUM(masak_snack) as total_masak_snack
@@ -154,7 +164,8 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         'Jabatan',
         'Status On Duty',
         'Total Jam Kerja Keseluruhan',
-        'Total Paket Makan & Minum Terjual',
+        'Total Paket Makan & Minum Warga Terjual', // PERBAIKAN: Header baru
+        'Total Paket Makan & Minum Instansi Terjual', // PERBAIKAN: Header baru
         'Total Paket Snack Terjual',
         'Total Masak Paket',
         'Total Masak Snack'
@@ -168,7 +179,8 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
             getRoleDisplayName($row['role']),
             $row['is_on_duty'] ? 'On Duty' : 'Off Duty',
             formatDuration($row['total_duty_minutes']),
-            $row['total_paket_makan_minum'],
+            $row['total_paket_makan_minum_warga'], // PERBAIKAN: Data baru
+            $row['total_paket_makan_minum_instansi'], // PERBAIKAN: Data baru
             $row['total_paket_snack'],
             $row['total_masak_paket'],
             $row['total_masak_snack']
@@ -227,7 +239,11 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                     <div class="summary-content">
                         <h4>Total Penjualan Keseluruhan</h4>
                         <p class="summary-value">
-                            <?= $total_paket_terjual_keseluruhan ?>
+                            <?php // PERBAIKAN: Menggunakan kolom paket makan minum yang baru untuk tampilan total
+                            echo array_sum(array_column($employee_activities, 'total_paket_makan_minum_warga')) +
+                                 array_sum(array_column($employee_activities, 'total_paket_makan_minum_instansi')) +
+                                 array_sum(array_column($employee_activities, 'total_paket_snack'));
+                            ?>
                         </p>
                     </div>
                 </div>
@@ -263,8 +279,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                     <th>Jabatan</th>
                                     <th>Status</th>
                                     <th>Total Jam Kerja</th>
-                                    <th>Paket M&M</th>
-                                    <th>Paket Snack</th>
+                                    <th>Paket M&M Warga</th> <th>Paket M&M Instansi</th> <th>Paket Snack</th>
                                     <th>Masak Paket</th>
                                     <th>Masak Snack</th>
                                 </tr>
@@ -272,8 +287,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                             <tbody>
                                 <?php if (empty($employee_activities)): ?>
                                     <tr>
-                                        <td colspan="8" class="no-data">Belum ada data aktivitas anggota.</td>
-                                    </tr>
+                                        <td colspan="9" class="no-data">Belum ada data aktivitas anggota.</td> </tr>
                                 <?php else: ?>
                                     <?php foreach ($employee_activities as $activity): ?>
                                     <tr>
@@ -299,8 +313,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                         <td data-label="Total Jam Kerja">
                                             <strong><?= formatDuration($activity['total_duty_minutes']) ?></strong>
                                         </td>
-                                        <td data-label="Paket M&M"><?= $activity['total_paket_makan_minum'] ?></td>
-                                        <td data-label="Paket Snack"><?= $activity['total_paket_snack'] ?></td>
+                                        <td data-label="Paket M&M Warga"><?= $activity['total_paket_makan_minum_warga'] ?></td> <td data-label="Paket M&M Instansi"><?= $activity['total_paket_makan_minum_instansi'] ?></td> <td data-label="Paket Snack"><?= $activity['total_paket_snack'] ?></td>
                                         <td data-label="Masak Paket"><?= $activity['total_masak_paket'] ?></td>
                                         <td data-label="Masak Snack"><?= $activity['total_masak_snack'] ?></td>
                                     </tr>

@@ -37,6 +37,10 @@
             <span class="nav-icon">📈</span>
             <span class="nav-text">Aktivitas Anggota</span>
         </a>
+        <a href="income-report.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'income-report.php' ? 'active' : '' ?>">
+            <span class="nav-icon">💳</span>
+            <span class="nav-text">Laporan Pemasukan</span>
+        </a>
         <a href="salary-recap.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'salary-recap.php' ? 'active' : '' ?>">
             <span class="nav-icon">💸</span>
             <span class="nav-text">Rekap Gaji</span>

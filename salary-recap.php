@@ -44,7 +44,8 @@ $total_payroll_expenditure = 0; // Inisialisasi total pengeluaran gaji
 $stmt = $conn->query("
     SELECT e.id, e.name, e.role, e.is_on_duty,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-           COALESCE(sales_summary.total_paket_makan_minum, 0) as total_paket_makan_minum,
+           COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
+           COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
            COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
            COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
            COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
@@ -60,7 +61,8 @@ $stmt = $conn->query("
     LEFT JOIN (
         SELECT
             employee_id,
-            SUM(paket_makan_minum) as total_paket_makan_minum,
+            SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
+            SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
             SUM(paket_snack) as total_paket_snack,
             SUM(masak_paket) as total_masak_paket,
             SUM(masak_snack) as total_masak_snack
@@ -85,7 +87,8 @@ foreach ($employees_raw_data as $employee) {
     $employee_id = $employee['id'];
     $employee_role = $employee['role'];
     $total_duty_minutes = $employee['total_duty_minutes'];
-    $total_paket_makan_minum = $employee['total_paket_makan_minum'];
+    $total_paket_makan_minum_warga = $employee['total_paket_makan_minum_warga'];
+    $total_paket_makan_minum_instansi = $employee['total_paket_makan_minum_instansi'];
     $total_paket_snack = $employee['total_paket_snack'];
     $total_masak_paket = $employee['total_masak_paket'];
     $total_masak_snack = $employee['total_masak_snack'];
@@ -123,7 +126,7 @@ foreach ($employees_raw_data as $employee) {
     }
 
     // Hitung Bonus Penjualan
-    $total_penjualan_paket = $total_paket_makan_minum + $total_paket_snack + $total_masak_paket + $total_masak_snack;
+    $total_penjualan_paket = $total_paket_makan_minum_warga + $total_paket_makan_minum_instansi + $total_paket_snack + $total_masak_paket + $total_masak_snack;
     $bonus_penjualan = 0;
     if ($total_penjualan_paket >= $sales_bonus_threshold) {
         $bonus_penjualan = $sales_bonus_amount;
@@ -138,6 +141,11 @@ foreach ($employees_raw_data as $employee) {
         'name' => $employee['name'],
         'role' => $employee['role'],
         'total_duty_minutes' => $total_duty_minutes,
+        'total_paket_makan_minum_warga' => $total_paket_makan_minum_warga,
+        'total_paket_makan_minum_instansi' => $total_paket_makan_minum_instansi,
+        'total_paket_snack' => $total_paket_snack,
+        'total_masak_paket' => $total_masak_paket,
+        'total_masak_snack' => $total_masak_snack,
         'total_sales_packages' => $total_penjualan_paket,
         'overtime_hours_display' => $overtime_hours_display,
         'overtime_remaining_minutes' => $overtime_remaining_minutes, // Menit sisa lembur untuk tampilan
@@ -167,6 +175,11 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         'Jabatan',
         'Total Jam Duty (Jam)',
         'Total Jam Duty (Menit)',
+        'Total Paket M&M Warga',
+        'Total Paket M&M Instansi',
+        'Total Paket Snack',
+        'Total Masak Paket',
+        'Total Masak Snack',
         'Total Penjualan & Masak (Paket)',
         'Jam Lembur (Jam)',
         'Menit Lembur (Sisa)',
@@ -185,6 +198,11 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
             getRoleDisplayName($row['role']),
             floor($row['total_duty_minutes'] / 60), // Total jam duty dalam jam
             $row['total_duty_minutes'], // Total jam duty dalam menit
+            $row['total_paket_makan_minum_warga'],
+            $row['total_paket_makan_minum_instansi'],
+            $row['total_paket_snack'],
+            $row['total_masak_paket'],
+            $row['total_masak_snack'],
             $row['total_sales_packages'],
             $row['overtime_hours_display'],
             $row['overtime_remaining_minutes'],
@@ -395,7 +413,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                         <td data-label="Status">
                                             <span class="payslip-status unpaid" data-status-id="status-<?= $employee['id'] ?>">Belum Dibayar</span>
                                         </td>
-                                        <td data-label="Aksi" class="action-column">
+                                        <td data-label="Aksi">
                                             <button class="btn btn-success btn-sm" onclick="markAsPaid(<?= $employee['id'] ?>)">Tandai Dibayar</button>
                                             <a href="generate-payslip.php?employee_id=<?= $employee['id'] ?>" target="_blank" class="btn btn-primary btn-sm">Unduh Slip Gaji</a>
                                         </td>

@@ -76,6 +76,39 @@ $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $avg_minutes = $stmt->get_result()->fetch_assoc()['avg_minutes'] ?? 0;
 
+// Ambil ringkasan data penjualan KESELURUHAN untuk pengguna (Overall Sales & Masak)
+$total_sales_overall_dashboard = [
+    'total_paket_makan_minum_warga' => 0,
+    'total_paket_makan_minum_instansi' => 0,
+    'total_paket_snack' => 0,
+    'total_masak_paket' => 0,
+    'total_masak_snack' => 0,
+];
+$stmt_sales_overall = $conn->prepare("
+    SELECT
+        SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
+        SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
+        SUM(paket_snack) as total_paket_snack,
+        SUM(masak_paket) as total_masak_paket,
+        SUM(masak_snack) as total_masak_snack
+    FROM sales_data
+    WHERE employee_id = ?
+");
+$stmt_sales_overall->bind_param("i", $user['id']);
+$stmt_sales_overall->execute();
+$result_sales_overall = $stmt_sales_overall->get_result()->fetch_assoc();
+if ($result_sales_overall) {
+    $total_sales_overall_dashboard = $result_sales_overall;
+}
+$stmt_sales_overall->close();
+
+$total_paket_terjual_dashboard = $total_sales_overall_dashboard['total_paket_makan_minum_warga'] +
+                                 $total_sales_overall_dashboard['total_paket_makan_minum_instansi'] +
+                                 $total_sales_overall_dashboard['total_paket_snack'] +
+                                 $total_sales_overall_dashboard['total_masak_paket'] +
+                                 $total_sales_overall_dashboard['total_masak_snack'];
+
+
 // Get recent activities
 $stmt = $conn->prepare("SELECT * FROM duty_logs WHERE employee_id = ? ORDER BY duty_start DESC LIMIT 5");
 $stmt->bind_param("i", $user['id']);
@@ -106,6 +139,41 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* CSS untuk logo di dalam stat-card */
+        .stat-icon img {
+            max-width: 100%; /* Pastikan gambar tidak melebihi lebar kontainer */
+            max-height: 100%; /* Pastikan gambar tidak melebihi tinggi kontainer */
+            object-fit: contain; /* Mempertahankan rasio aspek gambar */
+            display: block; /* Menghilangkan spasi ekstra di bawah gambar */
+            margin: auto; /* Pusatkan gambar */
+        }
+        /* CSS untuk logo Warung Om Tante di header dashboard */
+        .profile-avatar {
+            /* Pastikan ukuran dan bentuk tetap seperti lingkaran */
+            width: 80px; /* Ukuran yang sama dengan sebelumnya */
+            height: 80px; /* Ukuran yang sama dengan sebelumnya */
+            background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white; /* Warna teks (jika ada) */
+            font-size: 2rem; /* Ukuran ikon (jika ada) */
+            box-shadow: var(--shadow-lg);
+            border: 4px solid var(--bg-card);
+            overflow: hidden; /* Penting agar gambar tidak keluar dari lingkaran */
+        }
+
+        .profile-avatar img {
+            max-width: 100%; /* Sesuaikan dengan lebar container */
+            max-height: 100%; /* Sesuaikan dengan tinggi container */
+            object-fit: contain; /* Menjaga rasio aspek gambar */
+            transform: scale(0.8); /* Perkecil sedikit agar ada padding visual */
+            padding: 5px; /* Tambahkan sedikit padding di dalam lingkaran */
+        }
+
+    </style>
 </head>
 <body>
     <div class="dashboard-container">
@@ -122,7 +190,7 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
             <div class="dashboard-header">
                 <div class="user-profile">
                     <div class="profile-avatar">
-                        <span class="avatar-icon">👤</span>
+                        <img src="LOGO_WOT.png" alt="Logo Warung Om Tante">
                     </div>
                     <div class="profile-info">
                         <h1>Sistem Manajemen Warung Om Tante</h1>
@@ -194,10 +262,11 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                     </div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon">📅</div>
+                    <div class="stat-icon">
+                        💰 </div>
                     <div class="stat-content">
-                        <h3>Rata-Rata Jam Harian</h3>
-                        <p class="stat-value"><?= formatDuration($avg_minutes) ?></p>
+                        <h3>Total Penjualan & Masak</h3>
+                        <p class="stat-value"><?= $total_paket_terjual_dashboard ?> Paket</p>
                     </div>
                 </div>
             </div>
