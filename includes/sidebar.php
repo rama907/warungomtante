@@ -16,6 +16,10 @@
             <span class="nav-icon">⏱️</span>
             <span class="nav-text">Input Manual</span>
         </a>
+        <a href="my-payslip.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-payslip.php' ? 'active' : '' ?>">
+            <span class="nav-icon">📄</span>
+            <span class="nav-text">Slip Gaji Saya</span>
+        </a>
         
         <div class="nav-divider"></div>
         <a href="all-requests.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-requests.php' ? 'active' : '' ?>">
@@ -32,6 +36,10 @@
         <a href="employee-activities.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'employee-activities.php' ? 'active' : '' ?>">
             <span class="nav-icon">📈</span>
             <span class="nav-text">Aktivitas Anggota</span>
+        </a>
+        <a href="salary-recap.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'salary-recap.php' ? 'active' : '' ?>">
+            <span class="nav-icon">💸</span>
+            <span class="nav-text">Rekap Gaji</span>
         </a>
         <?php endif; ?>
         

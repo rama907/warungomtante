@@ -168,6 +168,8 @@ $stats['pending_requests'] = $conn->query("
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - Warung Om Tante</title>
+    <link rel="icon" href="LOGO_WOT.png" type="image/png">
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
