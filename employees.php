@@ -6,8 +6,98 @@ if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur', 'manager'])) {
     exit;
 }
 
+$user = getCurrentUser(); // Dapatkan user yang sedang login untuk approved_by
+
 // Ambil jumlah permohonan pending untuk indikator sidebar
 $pending_requests_count = getPendingRequestCount();
+
+// Inisialisasi variabel feedback
+$success = null;
+$error = null;
+
+// Handle action untuk manual Off Duty
+if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POST['action'] === 'manual_off_duty')) {
+    $employee_id_to_off_duty = (int)($_POST['employee_id'] ?? 0);
+
+    if ($employee_id_to_off_duty <= 0) {
+        $error = "ID anggota tidak valid!";
+    } elseif ($employee_id_to_off_duty == $user['id']) {
+        $error = "Anda tidak bisa meng-off duty diri sendiri secara manual dari sini. Silakan gunakan tombol Off Duty di Dashboard.";
+    } else {
+        // Mulai transaksi untuk memastikan konsistensi data
+        $conn->begin_transaction();
+        try {
+            // Ambil data karyawan yang akan di-off duty
+            $stmt_get_employee = $conn->prepare("SELECT name, is_on_duty, current_duty_start FROM employees WHERE id = ? AND status = 'active'");
+            if (!$stmt_get_employee) {
+                throw new Exception("Gagal menyiapkan query ambil data anggota: " . $conn->error);
+            }
+            $stmt_get_employee->bind_param("i", $employee_id_to_off_duty);
+            $stmt_get_employee->execute();
+            $employee_data = $stmt_get_employee->get_result()->fetch_assoc();
+            $stmt_get_employee->close();
+
+            if (!$employee_data || !$employee_data['is_on_duty']) {
+                throw new Exception("Anggota tidak ditemukan atau tidak sedang On Duty.");
+            }
+
+            // 1. Update duty_logs (cari record yang aktif dan akhiri)
+            $stmt_get_log = $conn->prepare("SELECT id, duty_start FROM duty_logs WHERE employee_id = ? AND duty_end IS NULL ORDER BY id DESC LIMIT 1");
+            if (!$stmt_get_log) {
+                throw new Exception("Gagal menyiapkan query ambil log duty: " . $conn->error);
+            }
+            $stmt_get_log->bind_param("i", $employee_id_to_off_duty);
+            $stmt_get_log->execute();
+            $active_log = $stmt_get_log->get_result()->fetch_assoc();
+            $stmt_get_log->close();
+
+            if ($active_log) {
+                $duty_start_dt = new DateTime($active_log['duty_start']);
+                $now_dt = new DateTime();
+                $duration_minutes = ($now_dt->getTimestamp() - $duty_start_dt->getTimestamp()) / 60;
+
+                $stmt_update_log = $conn->prepare("UPDATE duty_logs SET duty_end = NOW(), duration_minutes = ?, status = 'completed', approved_by = ? WHERE id = ?");
+                if (!$stmt_update_log) {
+                    throw new Exception("Gagal menyiapkan query update log duty: " . $conn->error);
+                }
+                $stmt_update_log->bind_param("iii", $duration_minutes, $user['id'], $active_log['id']);
+                if (!$stmt_update_log->execute()) {
+                    throw new Exception("Gagal mengupdate log duty: " . $stmt_update_log->error);
+                }
+                $stmt_update_log->close();
+            } else {
+                // Jika tidak ada active log, mungkin ada inkonsistensi data, tapi tetap lanjutkan update status employee
+                error_log("Warning: Employee " . $employee_data['name'] . " is_on_duty=TRUE but no active duty_log found.");
+            }
+
+            // 2. Update status employee
+            $stmt_update_employee = $conn->prepare("UPDATE employees SET is_on_duty = FALSE, current_duty_start = NULL WHERE id = ?");
+            if (!$stmt_update_employee) {
+                throw new Exception("Gagal menyiapkan query update status anggota: " . $conn->error);
+            }
+            $stmt_update_employee->bind_param("i", $employee_id_to_off_duty);
+            if (!$stmt_update_employee->execute()) {
+                throw new Exception("Gagal mengupdate status anggota: " . $stmt_update_employee->error);
+            }
+            $stmt_update_employee->close();
+
+            $conn->commit(); // Commit transaksi
+            $success = "Anggota " . htmlspecialchars($employee_data['name']) . " berhasil diatur Off Duty!";
+
+            // Kirim notifikasi Discord
+            sendDiscordNotification([
+                'employee_name' => htmlspecialchars($employee_data['name']),
+                'request_type' => 'Manual Off Duty',
+                'status' => 'completed',
+                'approved_by_name' => htmlspecialchars($user['name']),
+            ], 'request_status_update'); // Menggunakan tipe yang sama dengan update status request untuk konsistensi
+            
+        } catch (Exception $e) {
+            $conn->rollback(); // Rollback transaksi jika ada error
+            $error = "Terjadi kesalahan saat meng-off duty anggota: " . $e->getMessage();
+        }
+    }
+}
 
 // Get all employees
 $stmt = $conn->query("
@@ -27,6 +117,25 @@ $stmt = $conn->query("
         e.name
 ");
 $employees = $stmt->fetch_all(MYSQLI_ASSOC);
+
+// Inisialisasi variabel untuk alert long duty (untuk daftar anggota)
+$long_duty_members_info = [];
+foreach ($employees as $key => $employee) {
+    if ($employee['is_on_duty'] && $employee['current_duty_start']) {
+        $start_time = new DateTime($employee['current_duty_start']);
+        $now_time = new DateTime();
+        $duty_duration_seconds = $now_time->getTimestamp() - $start_time->getTimestamp();
+        
+        if ($duty_duration_seconds > (5 * 3600)) { // Lebih dari 5 jam (5 * 60 * 60 detik)
+            $long_duty_members_info[] = [
+                'name' => htmlspecialchars($employee['name']),
+                'duration' => formatDuration($duty_duration_seconds / 60) // Konversi detik ke menit untuk formatDuration
+            ];
+            // Tambahkan flag ke data karyawan untuk indikasi di UI
+            $employees[$key]['is_long_duty'] = true;
+        }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -51,6 +160,26 @@ $employees = $stmt->fetch_all(MYSQLI_ASSOC);
                 <p>Daftar semua anggota Warung Om Tante</p>
             </div>
 
+            <?php if (isset($success)): ?>
+                <div class="success-message"><?= $success ?></div>
+            <?php endif; ?>
+            
+            <?php if (isset($error)): ?>
+                <div class="error-message"><?= $error ?></div>
+            <?php endif; ?>
+
+            <?php if (!empty($long_duty_members_info)): ?>
+                <div class="warning-message" style="margin-bottom: var(--spacing-xl);">
+                    <strong>⚠️ Perhatian:</strong> Ada anggota yang sudah On Duty lebih dari 5 jam:
+                    <ul>
+                        <?php foreach ($long_duty_members_info as $member): ?>
+                            <li><?= $member['name'] ?> (<?= $member['duration'] ?>)</li>
+                        <?php endforeach; ?>
+                    </ul>
+                    Pertimbangkan untuk menghubungi mereka atau melakukan "Off Duty Manual".
+                </div>
+            <?php endif; ?>
+
             <div class="card">
                 <div class="card-header">
                     <h3>Anggota Aktif</h3>
@@ -74,6 +203,24 @@ $employees = $stmt->fetch_all(MYSQLI_ASSOC);
                                     <div class="duty-timer" data-start-time="<?= $employee['current_duty_start'] ?>">
                                         00:00:00
                                     </div>
+                                <?php endif; ?>
+
+                                <?php if (isset($employee['is_long_duty']) && $employee['is_long_duty']): ?>
+                                    <div class="info-message" style="margin-top: var(--spacing-sm); font-size: 0.85rem; padding: 0.5rem; border-left: 3px solid var(--warning-color);">
+                                        Sudah On Duty > 5 jam
+                                    </div>
+                                <?php endif; ?>
+
+                                <?php if ($employee['is_on_duty'] && $employee['id'] != $user['id']): // Hanya tampilkan jika On Duty dan bukan diri sendiri ?>
+                                <div class="manual-off-duty-action" style="margin-top: var(--spacing-md);">
+                                    <form method="POST" onsubmit="return confirm('Yakin ingin mengakhiri sesi On Duty untuk <?= htmlspecialchars($employee['name']) ?> sekarang? Tindakan ini akan mencatat waktu Off Duty saat ini.');">
+                                        <input type="hidden" name="action" value="manual_off_duty">
+                                        <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
+                                        <button type="submit" class="btn btn-danger btn-sm">
+                                            <span class="btn-icon">❌</span> Off Duty Manual
+                                        </button>
+                                    </form>
+                                </div>
                                 <?php endif; ?>
                             </div>
                         </div>

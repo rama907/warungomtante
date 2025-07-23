@@ -48,6 +48,10 @@
             <span class="nav-icon">⚙️</span>
             <span class="nav-text">Admin Panel</span>
         </a>
+        <a href="duty-history-management.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'duty-history-management.php' ? 'active' : '' ?>">
+            <span class="nav-icon">⏱️</span>
+            <span class="nav-text">Manajemen Jam Kerja</span>
+        </a>
         <?php endif; ?>
     </div>
 </nav>

@@ -66,10 +66,10 @@ if ($_POST['action'] ?? '' === 'off_duty') {
 }
 
 // Get user stats
-$stmt = $conn->prepare("SELECT SUM(duration_minutes) as total_minutes FROM duty_logs WHERE employee_id = ? AND WEEK(duty_start) = WEEK(NOW()) AND YEAR(duty_start) = YEAR(NOW())");
+$stmt = $conn->prepare("SELECT SUM(duration_minutes) as total_minutes FROM duty_logs WHERE employee_id = ? AND status = 'completed'"); // Mengambil semua jam kerja yang completed
 $stmt->bind_param("i", $user['id']);
 $stmt->execute();
-$weekly_minutes = $stmt->get_result()->fetch_assoc()['total_minutes'] ?? 0;
+$total_minutes = $stmt->get_result()->fetch_assoc()['total_minutes'] ?? 0;
 
 $stmt = $conn->prepare("SELECT AVG(duration_minutes) as avg_minutes FROM duty_logs WHERE employee_id = ? AND duty_end IS NOT NULL");
 $stmt->bind_param("i", $user['id']);
@@ -82,12 +82,18 @@ $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $recent_activities = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
-// Get current duty duration if on duty
-$current_duty_duration = 0;
+// Get current duty duration if on duty for alert
+$current_duty_duration_seconds = 0;
+$long_duty_alert_dashboard = false;
 if ($user['is_on_duty'] && $user['current_duty_start']) {
     $start = new DateTime($user['current_duty_start']);
     $now = new DateTime();
-    $current_duty_duration = $now->getTimestamp() - $start->getTimestamp();
+    $current_duty_duration_seconds = $now->getTimestamp() - $start->getTimestamp();
+    
+    // Check if on duty for more than 5 hours (5 * 3600 seconds)
+    if ($current_duty_duration_seconds > (5 * 3600)) {
+        $long_duty_alert_dashboard = true;
+    }
 }
 ?>
 
@@ -105,6 +111,12 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
         <?php include 'includes/sidebar.php'; ?>
 
         <main class="main-content">
+            <?php if ($long_duty_alert_dashboard): ?>
+                <div class="warning-message" style="margin-bottom: var(--spacing-xl);">
+                    <strong>⚠️ Perhatian:</strong> Anda sudah On Duty lebih dari 5 jam. Pastikan Anda beristirahat yang cukup!
+                </div>
+            <?php endif; ?>
+
             <div class="dashboard-header">
                 <div class="user-profile">
                     <div class="profile-avatar">
@@ -138,23 +150,6 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                 </div>
             </div>
 
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">⏰</div>
-                    <div class="stat-content">
-                        <h3>Total Jam Minggu Ini</h3>
-                        <p class="stat-value"><?= formatDuration($weekly_minutes) ?></p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">📅</div>
-                    <div class="stat-content">
-                        <h3>Rata-Rata Jam Harian</h3>
-                        <p class="stat-value"><?= formatDuration($avg_minutes) ?></p>
-                    </div>
-                </div>
-            </div>
-
             <div class="action-buttons">
                 <form method="POST" style="display: inline;">
                     <input type="hidden" name="action" value="on_duty">
@@ -182,6 +177,27 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                     <span class="btn-icon">📄</span>
                     Resign
                 </a>
+                <a href="manual-duty.php" class="btn btn-primary">
+                    <span class="btn-icon">⏱️</span>
+                    Input Jam Manual
+                </a>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">⏰</div>
+                    <div class="stat-content">
+                        <h3>Total Jam Kerja</h3>
+                        <p class="stat-value"><?= formatDuration($total_minutes) ?></p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📅</div>
+                    <div class="stat-content">
+                        <h3>Rata-Rata Jam Harian</h3>
+                        <p class="stat-value"><?= formatDuration($avg_minutes) ?></p>
+                    </div>
+                </div>
             </div>
 
             <div class="recent-activities">

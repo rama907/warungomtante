@@ -67,7 +67,25 @@ function getRoleDisplayName($role) {
 // Fungsi untuk mengirim notifikasi ke Discord
 function sendDiscordNotification($data, $type = 'info') {
     // URL Webhook Discord Anda
-    $webhook_url = 'https://discord.com/api/webhooks/1387832939005345923/mReLuAr1j85i7IvkUoxg5EvmdSZHOWqiiXwJ3dWMVJYdZ6zbC5Ey6DVtfe7EsufbsLMB';
+    // Webhook pertama (untuk SEMUA notifikasi)
+    $general_webhook_url = 'https://discord.com/api/webhooks/1389455043362689189/xdkSg5PDEedaPuxLaxEGOythlsAFGIm5b-fb-GJh4tcCMgGar7t_uk9-XsMzObDF69Tx';
+
+    // Webhook kedua (KHUSUS untuk pengajuan dan pembaruan status permohonan)
+    // GANTI DENGAN URL WEBHOOK KEDUA ANDA DI SINI
+    $request_webhook_url = 'https://discord.com/api/webhooks/1388990746073497620/OhXDG3FCAs1C2bMSttYJubDnEtwXl0OxSn8TKlbLu0JD5LJD1iaFp6Hwg_jcDkr6sHGF'; // <--- PASTIKAN INI DIGANTI!
+
+    $webhooks_to_send = [$general_webhook_url]; // Default: selalu kirim ke webhook umum
+
+    // Jika tipe notifikasi adalah pengajuan cuti/resign, atau pembaruan status permohonan, tambahkan webhook kedua
+    if (in_array($type, ['leave_request_submitted', 'resignation_request_submitted', 'manual_duty_request_submitted', 'request_status_update'])) {
+        // Pastikan URL webhook kedua telah diatur dan bukan placeholder
+        if (!empty($request_webhook_url) && $request_webhook_url !== 'https://discord.com/api/webhooks/YOUR_SECOND_WEBHOOK_URL_HERE') {
+            $webhooks_to_send[] = $request_webhook_url;
+        } else {
+            error_log("Peringatan: URL webhook khusus permohonan tidak dikonfigurasi. Notifikasi permohonan hanya dikirim ke webhook umum.");
+        }
+    }
+
     $username = "Warung Om Tante Bot";
     $avatar_url = ""; // GANTI DENGAN URL AVATAR BOT ANDA, misal logo warung
 
@@ -240,6 +258,26 @@ function sendDiscordNotification($data, $type = 'info') {
                 ['name' => 'Total Item', 'value' => $total_items, 'inline' => true],
             ];
             break;
+        
+        case 'duty_log_deleted': // Tipe notifikasi baru
+            $employee_name = htmlspecialchars($data['employee_name']);
+            $admin_name = htmlspecialchars($data['admin_name']);
+            $duty_start_time = date('d/m/Y H:i', strtotime($data['duty_start']));
+            $duty_end_time = $data['duty_end'] ? date('H:i', strtotime($data['duty_end'])) : 'Belum Selesai';
+            $duration_display = formatDuration($data['duration_minutes']);
+
+            $embed['title'] = "🗑️ Log Jam Kerja Dihapus!";
+            $embed['description'] = "Log jam kerja anggota **{$employee_name}** telah dihapus oleh **{$admin_name}**.";
+            $embed['color'] = $colors['danger']; // Merah untuk penghapusan
+            $embed['fields'] = [
+                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Dihapus Oleh', 'value' => $admin_name, 'inline' => true],
+                ['name' => 'Tanggal & Waktu Mulai', 'value' => $duty_start_time, 'inline' => false],
+                ['name' => 'Waktu Selesai (estimasi)', 'value' => $duty_end_time, 'inline' => true],
+                ['name' => 'Durasi (estimasi)', 'value' => $duration_display, 'inline' => true],
+                ['name' => 'Saran', 'value' => "Mohon informasikan anggota tersebut untuk mengajukan `Input Jam Manual` jika periode ini perlu dicatat ulang.", 'inline' => false]
+            ];
+            break;
 
         default:
             // Fallback untuk pesan yang tidak dikenali
@@ -264,8 +302,12 @@ function sendDiscordNotification($data, $type = 'info') {
         ],
     ];
 
-    $context = stream_context_create($options);
-    @file_get_contents($webhook_url, false, $context);
+    // Kirim notifikasi ke setiap URL webhook yang relevan
+    foreach ($webhooks_to_send as $webhook_url) {
+        $context = stream_context_create($options);
+        // Gunakan '@' untuk menekan error jika ada URL webhook yang tidak valid atau tidak dikonfigurasi
+        @file_get_contents($webhook_url, false, $context);
+    }
 }
 
 // Function to get total pending requests
