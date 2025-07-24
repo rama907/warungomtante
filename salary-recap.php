@@ -37,12 +37,100 @@ $sales_bonus_amount = 800000;
 
 $duty_21_hour_bonus = 1000000;
 
-// Ambil data semua anggota aktif
+$success_message = null;
+$error_message = null;
+
+// --- Handle Payment Status Actions ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $action = $_POST['action'];
+
+    $conn->begin_transaction();
+    try {
+        if ($action === 'mark_paid' || $action === 'mark_unpaid') {
+            $employee_id = (int)($_POST['employee_id'] ?? 0);
+            $new_status = ($action === 'mark_paid') ? TRUE : FALSE;
+            $status_text = ($action === 'mark_paid') ? 'Sudah Dibayar' : 'Belum Dibayar';
+
+            if ($employee_id <= 0) {
+                throw new Exception("ID anggota tidak valid.");
+            }
+
+            $stmt = $conn->prepare("UPDATE employees SET is_paid = ? WHERE id = ?");
+            if (!$stmt) {
+                throw new Exception("Gagal menyiapkan query update status pembayaran: " . $conn->error);
+            }
+            $stmt->bind_param("ii", $new_status, $employee_id);
+
+            if ($stmt->execute() && $stmt->affected_rows > 0) {
+                $conn->commit();
+                $employee_name = getEmployeeNameById($employee_id); // Fungsi bantu untuk mendapatkan nama
+                $success_message = "Status gaji **" . htmlspecialchars($employee_name) . "** berhasil diubah menjadi **{$status_text}**.";
+                sendDiscordNotification([
+                    'employee_name' => $employee_name,
+                    'status' => $status_text,
+                    'admin_name' => $user['name']
+                ], ($action === 'mark_paid') ? 'salary_paid_single' : 'salary_unpaid_single');
+            } else {
+                throw new Exception("Gagal mengubah status pembayaran. Mungkin sudah dalam status yang sama atau ID tidak ditemukan.");
+            }
+            $stmt->close();
+
+        } elseif ($action === 'reset_all_paid_status') {
+            $stmt = $conn->prepare("UPDATE employees SET is_paid = FALSE WHERE status = 'active'");
+            if (!$stmt) {
+                throw new Exception("Gagal menyiapkan query reset semua status pembayaran: " . $conn->error);
+            }
+
+            if ($stmt->execute() && $stmt->affected_rows > 0) {
+                $conn->commit();
+                $success_message = "Semua status gaji anggota berhasil diubah menjadi **Belum Dibayar**.";
+                sendDiscordNotification([
+                    'admin_name' => $user['name']
+                ], 'salary_unpaid_all');
+            } else {
+                throw new Exception("Gagal mereset semua status pembayaran. Mungkin tidak ada yang perlu direset.");
+            }
+            $stmt->close();
+        }
+
+    } catch (Exception $e) {
+        $conn->rollback();
+        $error_message = "Terjadi kesalahan: " . $e->getMessage();
+    }
+    header("Location: salary-recap.php?msg=" . urlencode($success_message ?? $error_message) . "&type=" . urlencode(isset($success_message) ? 'success' : 'error'));
+    exit;
+}
+
+// Fungsi bantu untuk mendapatkan nama karyawan berdasarkan ID
+function getEmployeeNameById($id) {
+    global $conn;
+    $stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $result['name'] ?? 'Tidak Dikenal';
+}
+
+
+// Menampilkan pesan feedback setelah redirect
+if (isset($_GET['msg']) && isset($_GET['type'])) {
+    $feedback_message = htmlspecialchars($_GET['msg']);
+    $feedback_type = htmlspecialchars($_GET['type']);
+    if ($feedback_type === 'success') {
+        $success_message = $feedback_message;
+    } else {
+        $error_message = $feedback_message;
+    }
+}
+
+
+// Ambil data semua anggota aktif (termasuk status is_paid)
 $employees_data = [];
 $total_payroll_expenditure = 0; // Inisialisasi total pengeluaran gaji
 
 $stmt = $conn->query("
-    SELECT e.id, e.name, e.role, e.is_on_duty,
+    SELECT e.id, e.name, e.role, e.is_on_duty, e.is_paid, -- Tambahkan is_paid di SELECT
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
            COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
            COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
@@ -100,7 +188,7 @@ foreach ($employees_raw_data as $employee) {
     $nominal_bonus_lembur_perjam = 0;
     $total_bonus_lembur = 0;
 
-    // Hitung Gaji Pokok
+    // Hitung Gaji pokok
     $gaji_pokok = 0;
     if ($total_duty_minutes > 0 && isset($base_salaries[$employee_role])) {
         $gaji_pokok = $base_salaries[$employee_role];
@@ -140,6 +228,7 @@ foreach ($employees_raw_data as $employee) {
         'id' => $employee['id'],
         'name' => $employee['name'],
         'role' => $employee['role'],
+        'is_paid' => (bool)$employee['is_paid'], // Konversi ke boolean eksplisit
         'total_duty_minutes' => $total_duty_minutes,
         'total_paket_makan_minum_warga' => $total_paket_makan_minum_warga,
         'total_paket_makan_minum_instansi' => $total_paket_makan_minum_instansi,
@@ -188,7 +277,8 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         'Bonus Lembur Per Jam (Rp)',
         'Total Bonus Lembur (Rp)',
         'Bonus On Duty 21 Jam (Rp)',
-        'Total Gajian (Rp)'
+        'Total Gajian (Rp)',
+        'Status Pembayaran' // Tambahkan status pembayaran
     ];
     fputcsv($output, $headers);
 
@@ -211,7 +301,8 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
             $row['nominal_bonus_lembur_perjam'],
             $row['total_bonus_lembur'],
             $row['bonus_21_jam'],
-            $row['total_gajian']
+            $row['total_gajian'],
+            $row['is_paid'] ? 'Sudah Dibayar' : 'Belum Dibayar' // Status pembayaran
         ];
         fputcsv($output, $data_row);
     }
@@ -294,8 +385,22 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                         <span class="btn-icon">⬇️</span>
                         Unduh Rekap Spreadsheet
                     </a>
+                    <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin MERESET status pembayaran semua anggota menjadi Belum Dibayar? Tindakan ini tidak dapat dibatalkan untuk semua!')">
+                        <input type="hidden" name="action" value="reset_all_paid_status">
+                        <button type="submit" class="btn btn-warning">
+                            <span class="btn-icon">🔄</span> Reset Semua Status Bayar
+                        </button>
+                    </form>
                 </div>
             </div>
+
+            <?php if (isset($success_message)): ?>
+                <div class="success-message">🎉 <?= htmlspecialchars($success_message) ?></div>
+            <?php endif; ?>
+            
+            <?php if (isset($error_message)): ?>
+                <div class="error-message">❌ <?= htmlspecialchars($error_message) ?></div>
+            <?php endif; ?>
 
             <div class="summary-stats-container">
                 <div class="summary-card">
@@ -411,10 +516,24 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                             <strong><?= 'Rp ' . number_format($employee['total_gajian'], 0, ',', '.') ?></strong>
                                         </td>
                                         <td data-label="Status">
-                                            <span class="payslip-status unpaid" data-status-id="status-<?= $employee['id'] ?>">Belum Dibayar</span>
+                                            <span class="payslip-status <?= $employee['is_paid'] ? 'paid' : 'unpaid' ?>">
+                                                <?= $employee['is_paid'] ? 'Sudah Dibayar' : 'Belum Dibayar' ?>
+                                            </span>
                                         </td>
-                                        <td data-label="Aksi">
-                                            <button class="btn btn-success btn-sm" onclick="markAsPaid(<?= $employee['id'] ?>)">Tandai Dibayar</button>
+                                        <td data-label="Aksi" class="action-column">
+                                            <?php if (!$employee['is_paid']): ?>
+                                            <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menandai gaji <?= htmlspecialchars($employee['name']) ?> sebagai Sudah Dibayar? Status akan tersimpan.')">
+                                                <input type="hidden" name="action" value="mark_paid">
+                                                <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
+                                                <button type="submit" class="btn btn-success btn-sm">Tandai Dibayar</button>
+                                            </form>
+                                            <?php else: ?>
+                                            <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menandai gaji <?= htmlspecialchars($employee['name']) ?> sebagai Belum Dibayar? Status akan tersimpan.')">
+                                                <input type="hidden" name="action" value="mark_unpaid">
+                                                <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
+                                                <button type="submit" class="btn btn-warning btn-sm">Batal Dibayar</button>
+                                            </form>
+                                            <?php endif; ?>
                                             <a href="generate-payslip.php?employee_id=<?= $employee['id'] ?>" target="_blank" class="btn btn-primary btn-sm">Unduh Slip Gaji</a>
                                         </td>
                                     </tr>
@@ -429,33 +548,5 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
     </div>
 
     <script src="script.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Animasi fade-in untuk card
-            const cards = document.querySelectorAll('.card');
-            cards.forEach((card, index) => {
-                card.style.animationDelay = `${index * 0.1}s`;
-                card.classList.add('fade-in');
-            });
-
-            // Animasi fade-in untuk baris tabel
-            const tableRows = document.querySelectorAll('.activities-table-improved tbody tr');
-            tableRows.forEach((row, index) => {
-                row.style.animationDelay = `${(cards.length * 0.1) + (index * 0.05)}s`;
-                row.classList.add('fade-in');
-            });
-        });
-
-        // Fungsi untuk menandai sebagai sudah dibayar (non-persisten)
-        function markAsPaid(employeeId) {
-            const statusElement = document.querySelector(`[data-status-id="status-${employeeId}"]`);
-            if (statusElement) {
-                statusElement.textContent = 'Sudah Dibayar';
-                statusElement.classList.remove('unpaid');
-                statusElement.classList.add('paid');
-                showNotification(`Gaji untuk ${document.querySelector(`tr[data-employee-id="${employeeId}"] .employee-name-cell span:last-child`).textContent} ditandai sudah dibayar.`, 'success');
-            }
-        }
-    </script>
 </body>
 </html>
