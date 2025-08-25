@@ -3092,3 +3092,82 @@ body {
         box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
     }
 }
+
+/* Tambahan gaya untuk lencana surat peringatan */
+.sp-badge {
+    font-size: 1rem;
+    font-weight: 700;
+    padding: 0.5em 1em;
+    border-radius: var(--radius-md);
+    text-transform: uppercase;
+    box-shadow: var(--shadow-sm);
+    white-space: nowrap;
+}
+.sp-badge.sp1 { background-color: #ffeb3b; color: #b71c1c; }
+.sp-badge.sp2 { background-color: #ff9800; color: #e65100; }
+.sp-badge.sp3 { background-color: #f44336; color: white; }
+.sp-badge.phk { background-color: #b71c1c; color: white; }
+.user-details {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    color: var(--text-secondary);
+    font-size: 1.125rem;
+    flex-wrap: wrap;
+}
+
+/* Gaya untuk lencana SP di dalam user-card */
+.user-card {
+    position: relative; /* Penting untuk menempatkan lencana secara absolut */
+}
+
+.sp-card-badge {
+    position: absolute;
+    top: var(--spacing-md);
+    right: var(--spacing-md);
+    z-index: 5;
+}
+
+.sp-badge {
+    font-size: 1rem;
+    font-weight: 700;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-md);
+    text-transform: uppercase;
+    box-shadow: var(--shadow-sm);
+    white-space: nowrap;
+    animation: pulse-sp 1.5s infinite;
+}
+
+.sp-badge.sp1 {
+    background-color: var(--warning-light);
+    color: var(--warning-color);
+}
+.sp-badge.sp2 {
+    background-color: var(--warning-color);
+    color: white;
+}
+.sp-badge.sp3 {
+    background-color: var(--danger-color);
+    color: white;
+}
+.sp-badge.phk {
+    background-color: #b71c1c; /* Merah gelap */
+    color: white;
+}
+
+/* Animasi untuk lencana SP */
+@keyframes pulse-sp {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(244, 67, 54, 0.7);
+    }
+    70% {
+        transform: scale(1.05);
+        box-shadow: 0 0 0 10px rgba(244, 67, 54, 0);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(244, 67, 54, 0);
+    }
+}

@@ -12,14 +12,19 @@ $is_admin_or_manager = hasRole(['direktur', 'wakil_direktur', 'manager']);
 
 $employee_id_to_view = 0;
 
-if ($is_admin_or_manager) {
-    $employee_id_to_view = (int)($_GET['employee_id'] ?? 0);
-} else {
-    $employee_id_to_view = $user['id'];
-    if (isset($_GET['employee_id']) && (int)$_GET['employee_id'] !== $user['id']) {
+if (isset($_GET['employee_id'])) {
+    $requested_id = (int)$_GET['employee_id'];
+    
+    if ($is_admin_or_manager) {
+        $employee_id_to_view = $requested_id;
+    } elseif ($requested_id === $user['id']) {
+        $employee_id_to_view = $user['id'];
+    } else {
         header('Location: my-payslip.php');
         exit;
     }
+} else {
+    $employee_id_to_view = $user['id'];
 }
 
 if ($employee_id_to_view <= 0) {
@@ -55,10 +60,12 @@ $min_duty_minutes_for_bonus = $min_duty_hours_for_bonus * 60;
 $overtime_cap_hours = 15;
 $overtime_cap_minutes = $overtime_cap_hours * 60;
 
-$sales_bonus_threshold = 300;
+$sales_bonus_threshold = 400;
 $sales_bonus_amount = 800000;
 
 $duty_21_hour_bonus = 1000000;
+
+$performance_cut_off_threshold = 400;
 
 $stmt = $conn->prepare("
     SELECT e.id, e.name, e.role,
@@ -143,8 +150,33 @@ if ($total_duty_minutes > $min_duty_minutes_for_bonus) {
 // Perhitungan Bonus Penjualan
 $total_penjualan_paket = $total_paket_makan_minum_warga + $total_paket_makan_minum_instansi + $total_paket_snack;
 $bonus_penjualan = 0;
-if ($total_penjualan_paket >= $sales_bonus_threshold) {
-    $bonus_penjualan = $sales_bonus_amount;
+if (in_array($employee_role, ['karyawan', 'magang'])) {
+    if ($total_penjualan_paket >= $sales_bonus_threshold) {
+        $bonus_penjualan = $sales_bonus_amount;
+    }
+}
+
+// Perhitungan Potongan 50% untuk Karyawan & Magang (Penjualan) dan Chef (Masak)
+$is_bonus_cut = false;
+$performance_indicator = 0;
+$performance_target_name = '';
+
+if (in_array($employee_role, ['karyawan', 'magang'])) {
+    $performance_indicator = $total_penjualan_paket;
+    $performance_target_name = 'Penjualan';
+    if ($performance_indicator < $performance_cut_off_threshold) {
+        $bonus_21_jam *= 0.5;
+        $total_bonus_lembur *= 0.5;
+        $is_bonus_cut = true;
+    }
+} elseif ($employee_role === 'chef') {
+    $performance_indicator = $total_masak_paket + $total_masak_snack;
+    $performance_target_name = 'Memasak';
+    if ($performance_indicator < $performance_cut_off_threshold) {
+        $bonus_21_jam *= 0.5;
+        $total_bonus_lembur *= 0.5;
+        $is_bonus_cut = true;
+    }
 }
 
 // Perhitungan Total Gaji
@@ -352,11 +384,15 @@ function formatRupiah($amount) {
                 </tr>
                 <tr>
                     <td>Bonus On Duty >= <?= $min_duty_hours_for_bonus ?> Jam</td>
-                    <td style="text-align: right;"><?= formatRupiah($bonus_21_jam) ?></td>
+                    <td style="text-align: right;"><?= formatRupiah($bonus_21_jam) ?>
+                    <?php if($is_bonus_cut): ?><br><small style='color: #ef4444'>(Dipotong 50%)</small><?php endif; ?>
+                    </td>
                 </tr>
                 <tr>
                     <td>Total Bonus Lembur (<?= $overtime_hours_display ?>j <?= $overtime_remaining_minutes ?>m)</td>
-                    <td style="text-align: right;"><?= formatRupiah($total_bonus_lembur) ?></td>
+                    <td style="text-align: right;"><?= formatRupiah($total_bonus_lembur) ?>
+                    <?php if($is_bonus_cut): ?><br><small style='color: #ef4444'>(Dipotong 50%)</small><?php endif; ?>
+                    </td>
                 </tr>
                 <tr>
                     <td>Bonus Penjualan (>= <?= $sales_bonus_threshold ?> Paket)</td>
@@ -372,7 +408,14 @@ function formatRupiah($amount) {
         <div class="section-title">Ringkasan Kinerja</div>
         <div class="info-grid">
             <div class="info-item"><span>Total Jam Duty:</span> <?= formatDuration($total_duty_minutes) ?></div>
-            <div class="info-item"><span>Total Penjualan:</span> <?= $total_penjualan_paket ?> Paket</div>
+            <div class="info-item">
+                <span>Total Penjualan:</span>
+                <?php if ($employee_role === 'chef'): ?>
+                    <?= $total_masak_paket + $total_masak_snack ?> Masak
+                <?php else: ?>
+                    <?= $total_penjualan_paket ?> Paket
+                <?php endif; ?>
+            </div>
             <div class="info-item"><span>Jam Lembur:</span> <?= $overtime_hours_display ?>j <?= $overtime_remaining_minutes ?>m</div>
             <div class="info-item"><span>Total Nominal Bonus:</span> <?= formatRupiah($total_nominal_bonus) ?></div>
             <div class="info-item"><span>Total Penjualan M&M Warga:</span> <?= $total_paket_makan_minum_warga ?></div>

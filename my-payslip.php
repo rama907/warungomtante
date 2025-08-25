@@ -43,10 +43,12 @@ $min_duty_minutes_for_bonus = $min_duty_hours_for_bonus * 60;
 $overtime_cap_hours = 15;
 $overtime_cap_minutes = $overtime_cap_hours * 60;
 
-$sales_bonus_threshold = 300;
+$sales_bonus_threshold = 400;
 $sales_bonus_amount = 800000;
 
 $duty_21_hour_bonus = 1000000;
+
+$performance_cut_off_threshold = 400;
 
 // Ambil data anggota spesifik (yang sedang login) menggunakan subquery untuk agregasi
 $stmt = $conn->prepare("
@@ -145,8 +147,30 @@ if ($total_duty_minutes_summary > $min_duty_minutes_for_bonus) {
 // Perhitungan Bonus Penjualan
 $total_penjualan_paket_summary = $total_paket_makan_minum_warga_summary + $total_paket_makan_minum_instansi_summary + $total_paket_snack_summary;
 $bonus_penjualan_summary = 0;
-if ($total_penjualan_paket_summary >= $sales_bonus_threshold) {
-    $bonus_penjualan_summary = $sales_bonus_amount;
+if (in_array($employee_role_summary, ['karyawan', 'magang'])) {
+    if ($total_penjualan_paket_summary >= $sales_bonus_threshold) {
+        $bonus_penjualan_summary = $sales_bonus_amount;
+    }
+}
+
+$is_bonus_cut_summary = false;
+$performance_indicator_text = '';
+
+if (in_array($employee_role_summary, ['karyawan', 'magang'])) {
+    $performance_indicator_text = $total_penjualan_paket_summary . ' Paket';
+    if ($total_penjualan_paket_summary < $performance_cut_off_threshold) {
+        $bonus_21_jam_summary *= 0.5;
+        $total_bonus_lembur_summary *= 0.5;
+        $is_bonus_cut_summary = true;
+    }
+} elseif ($employee_role_summary === 'chef') {
+    $total_masak_packages_summary = $total_masak_paket_summary + $total_masak_snack_summary;
+    $performance_indicator_text = $total_masak_packages_summary . ' Masak';
+    if ($total_masak_packages_summary < $performance_cut_off_threshold) {
+        $bonus_21_jam_summary *= 0.5;
+        $total_bonus_lembur_summary *= 0.5;
+        $is_bonus_cut_summary = true;
+    }
 }
 
 // Perhitungan Total Gaji
@@ -267,8 +291,20 @@ function formatRupiah($amount) {
                     <div class="value"><?= formatDuration($total_duty_minutes_summary) ?></div>
                 </div>
                 <div class="summary-item">
-                    <div class="label">Total Penjualan</div>
-                    <div class="value"><?= $total_penjualan_paket_summary ?> Paket</div>
+                    <div class="label">
+                        <?php if ($employee_role_summary === 'chef'): ?>
+                            Total Masak
+                        <?php else: ?>
+                            Total Penjualan
+                        <?php endif; ?>
+                    </div>
+                    <div class="value">
+                        <?php if ($employee_role_summary === 'chef'): ?>
+                            <?= $total_masak_paket_summary + $total_masak_snack_summary ?> Masak
+                        <?php else: ?>
+                            <?= $total_penjualan_paket_summary ?> Paket
+                        <?php endif; ?>
+                    </div>
                 </div>
                 <div class="summary-item">
                     <div class="label">Jam Lembur</div>

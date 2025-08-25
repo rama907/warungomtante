@@ -154,6 +154,10 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
             <span class="nav-icon">📅</span>
             <span class="nav-text">Rekap Absensi</span>
         </a>
+        <a href="warning-management.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'warning-management.php' ? 'active' : '' ?>">
+            <span class="nav-icon">⚠️</span>
+            <span class="nav-text">Manajemen SP</span>
+        </a>
         <?php endif; ?>
         
         <?php if (hasRole(['direktur', 'wakil_direktur'])): ?>

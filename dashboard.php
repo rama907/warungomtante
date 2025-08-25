@@ -11,6 +11,26 @@ $user = getCurrentUser();
 // Ambil jumlah permohonan pending untuk indikator sidebar
 $pending_requests_count = getPendingRequestCount();
 
+// Ambil status surat peringatan terbaru dari database
+$warning_status = null;
+$stmt_sp = $conn->prepare("
+    SELECT sp_type
+    FROM warning_letters
+    WHERE employee_id = ?
+    ORDER BY issued_at DESC
+    LIMIT 1
+");
+if ($stmt_sp) {
+    $stmt_sp->bind_param("i", $user['id']);
+    $stmt_sp->execute();
+    $result_sp = $stmt_sp->get_result();
+
+    if ($result_sp->num_rows > 0) {
+        $warning_status = $result_sp->fetch_assoc()['sp_type'];
+    }
+    $stmt_sp->close();
+}
+
 // Handle duty actions
 if ($_POST['action'] ?? '' === 'on_duty') {
     if (!$user['is_on_duty']) {
@@ -66,7 +86,7 @@ if ($_POST['action'] ?? '' === 'off_duty') {
 }
 
 // Get user stats
-$stmt = $conn->prepare("SELECT SUM(duration_minutes) as total_minutes FROM duty_logs WHERE employee_id = ? AND status = 'completed'"); // Mengambil semua jam kerja yang completed
+$stmt = $conn->prepare("SELECT SUM(duration_minutes) as total_minutes FROM duty_logs WHERE employee_id = ? AND status = 'completed'");
 $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $total_minutes = $stmt->get_result()->fetch_assoc()['total_minutes'] ?? 0;
@@ -123,7 +143,6 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
     $now = new DateTime();
     $current_duty_duration_seconds = $now->getTimestamp() - $start->getTimestamp();
     
-    // Check if on duty for more than 5 hours (5 * 3600 seconds)
     if ($current_duty_duration_seconds > (5 * 3600)) {
         $long_duty_alert_dashboard = true;
     }
@@ -142,37 +161,34 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
     <style>
         /* CSS untuk logo di dalam stat-card */
         .stat-icon img {
-            max-width: 100%; /* Pastikan gambar tidak melebihi lebar kontainer */
-            max-height: 100%; /* Pastikan gambar tidak melebihi tinggi kontainer */
-            object-fit: contain; /* Mempertahankan rasio aspek gambar */
-            display: block; /* Menghilangkan spasi ekstra di bawah gambar */
-            margin: auto; /* Pusatkan gambar */
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: block;
+            margin: auto;
         }
         /* CSS untuk logo Warung Om Tante di header dashboard */
         .profile-avatar {
-            /* Pastikan ukuran dan bentuk tetap seperti lingkaran */
-            width: 80px; /* Ukuran yang sama dengan sebelumnya */
-            height: 80px; /* Ukuran yang sama dengan sebelumnya */
+            width: 80px;
+            height: 80px;
             background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white; /* Warna teks (jika ada) */
-            font-size: 2rem; /* Ukuran ikon (jika ada) */
+            color: white;
+            font-size: 2rem;
             box-shadow: var(--shadow-lg);
             border: 4px solid var(--bg-card);
-            overflow: hidden; /* Penting agar gambar tidak keluar dari lingkaran */
+            overflow: hidden;
         }
-
         .profile-avatar img {
-            max-width: 100%; /* Sesuaikan dengan lebar container */
-            max-height: 100%; /* Sesuaikan dengan tinggi container */
-            object-fit: contain; /* Menjaga rasio aspek gambar */
-            transform: scale(0.8); /* Perkecil sedikit agar ada padding visual */
-            padding: 5px; /* Tambahkan sedikit padding di dalam lingkaran */
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            transform: scale(0.8);
+            padding: 5px;
         }
-
     </style>
 </head>
 <body>
@@ -203,6 +219,13 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
             </div>
 
             <div class="user-card">
+                <?php if ($warning_status): ?>
+                <div class="sp-card-badge">
+                    <span class="sp-badge sp-<?= strtolower($warning_status) ?>">
+                        <?= htmlspecialchars($warning_status) ?>
+                    </span>
+                </div>
+                <?php endif; ?>
                 <div class="user-card-content">
                     <div class="user-info">
                         <h2><?= htmlspecialchars($user['name']) ?></h2>

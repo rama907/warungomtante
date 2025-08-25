@@ -38,10 +38,12 @@ $min_duty_minutes_for_bonus = $min_duty_hours_for_bonus * 60;
 $overtime_cap_hours = 15;
 $overtime_cap_minutes = $overtime_cap_hours * 60;
 
-$sales_bonus_threshold = 300;
+$sales_bonus_threshold = 400;
 $sales_bonus_amount = 800000;
 
 $duty_21_hour_bonus = 1000000;
+
+$performance_cut_off_threshold = 400;
 
 $success_message = null;
 $error_message = null;
@@ -49,80 +51,13 @@ $error_message = null;
 // --- Handle Payment Status Actions ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
+    $employee_id = (int)($_POST['employee_id'] ?? 0);
+    $employee_name = getEmployeeNameById($employee_id);
 
     $conn->begin_transaction();
     try {
-        if ($action === 'mark_paid') {
-            $employee_id = (int)($_POST['employee_id'] ?? 0);
-            $new_status = TRUE;
-            $status_text = 'Sudah Dibayar';
-
-            if ($employee_id <= 0) {
-                throw new Exception("ID anggota tidak valid.");
-            }
-
-            // Dapatkan nama anggota sebelum data dihapus
-            $employee_name = getEmployeeNameById($employee_id);
-
-            // 1. Update status pembayaran di tabel employees
-            $stmt = $conn->prepare("UPDATE employees SET is_paid = ? WHERE id = ?");
-            if (!$stmt) {
-                throw new Exception("Gagal menyiapkan query update status pembayaran: " . $conn->error);
-            }
-            $stmt->bind_param("ii", $new_status, $employee_id);
-
-            if (!$stmt->execute() || $stmt->affected_rows === 0) {
-                throw new Exception("Gagal mengubah status pembayaran. Mungkin sudah dalam status yang sama atau ID tidak ditemukan.");
-            }
-            $stmt->close();
-            
-            // 2. Hapus semua data penjualan untuk anggota tersebut
-            $stmt_delete_sales = $conn->prepare("DELETE FROM sales_data WHERE employee_id = ?");
-            if (!$stmt_delete_sales) {
-                throw new Exception("Gagal menyiapkan query hapus data penjualan: " . $conn->error);
-            }
-            $stmt_delete_sales->bind_param("i", $employee_id);
-            $stmt_delete_sales->execute();
-            $stmt_delete_sales->close();
-
-            $conn->commit();
-            $success_message = "Status gaji **" . htmlspecialchars($employee_name) . "** berhasil diubah menjadi **{$status_text}**. Data penjualan dan masak telah dihapus.";
-            
-            sendDiscordNotification([
-                'employee_name' => $employee_name,
-                'status' => $status_text,
-                'admin_name' => $user['name']
-            ], 'salary_paid_single');
-            
-        } elseif ($action === 'mark_unpaid') {
-            $employee_id = (int)($_POST['employee_id'] ?? 0);
-            $new_status = FALSE;
-            $status_text = 'Belum Dibayar';
-
-            if ($employee_id <= 0) {
-                throw new Exception("ID anggota tidak valid.");
-            }
-
-            $stmt = $conn->prepare("UPDATE employees SET is_paid = ? WHERE id = ?");
-            if (!$stmt) {
-                throw new Exception("Gagal menyiapkan query update status pembayaran: " . $conn->error);
-            }
-            $stmt->bind_param("ii", $new_status, $employee_id);
-
-            if ($stmt->execute() && $stmt->affected_rows > 0) {
-                $conn->commit();
-                $employee_name = getEmployeeNameById($employee_id);
-                $success_message = "Status gaji **" . htmlspecialchars($employee_name) . "** berhasil diubah menjadi **{$status_text}**.";
-                sendDiscordNotification([
-                    'employee_name' => $employee_name,
-                    'status' => $status_text,
-                    'admin_name' => $user['name']
-                ], 'salary_unpaid_single');
-            } else {
-                throw new Exception("Gagal mengubah status pembayaran. Mungkin sudah dalam status yang sama atau ID tidak ditemukan.");
-            }
-            $stmt->close();
-        } elseif ($action === 'reset_all_paid_status') {
+        if ($action === 'reset_all_paid_status') {
+             // Aksi ini tidak memerlukan employee_id, jadi proses langsung
             $stmt = $conn->prepare("UPDATE employees SET is_paid = FALSE WHERE status = 'active'");
             if (!$stmt) {
                 throw new Exception("Gagal menyiapkan query reset semua status pembayaran: " . $conn->error);
@@ -138,6 +73,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 throw new Exception("Gagal mereset semua status pembayaran. Mungkin tidak ada yang perlu direset.");
             }
             $stmt->close();
+        } else {
+            // Aksi-aksi berikut memerlukan employee_id
+            if ($employee_id <= 0) {
+                throw new Exception("ID anggota tidak valid.");
+            }
+            $employee_name = getEmployeeNameById($employee_id);
+
+            if ($action === 'mark_paid') {
+                $new_status = TRUE;
+                $status_text = 'Sudah Dibayar';
+
+                $stmt = $conn->prepare("UPDATE employees SET is_paid = ? WHERE id = ?");
+                if (!$stmt) {
+                    throw new Exception("Gagal menyiapkan query update status pembayaran: " . $conn->error);
+                }
+                $stmt->bind_param("ii", $new_status, $employee_id);
+
+                if (!$stmt->execute() || $stmt->affected_rows === 0) {
+                    throw new Exception("Gagal mengubah status pembayaran. Mungkin sudah dalam status yang sama atau ID tidak ditemukan.");
+                }
+                $stmt->close();
+
+                $conn->commit();
+                $success_message = "Status gaji **" . htmlspecialchars($employee_name) . "** berhasil diubah menjadi **{$status_text}**.";
+                
+                sendDiscordNotification([
+                    'employee_name' => $employee_name,
+                    'status' => $status_text,
+                    'admin_name' => $user['name']
+                ], 'salary_paid_single');
+                
+            } elseif ($action === 'mark_unpaid') {
+                $new_status = FALSE;
+                $status_text = 'Belum Dibayar';
+
+                $stmt = $conn->prepare("UPDATE employees SET is_paid = ? WHERE id = ?");
+                if (!$stmt) {
+                    throw new Exception("Gagal menyiapkan query update status pembayaran: " . $conn->error);
+                }
+                $stmt->bind_param("ii", $new_status, $employee_id);
+
+                if ($stmt->execute() && $stmt->affected_rows > 0) {
+                    $conn->commit();
+                    $success_message = "Status gaji **" . htmlspecialchars($employee_name) . "** berhasil diubah menjadi **{$status_text}**.";
+                    sendDiscordNotification([
+                        'employee_name' => $employee_name,
+                        'status' => $status_text,
+                        'admin_name' => $user['name']
+                    ], 'salary_unpaid_single');
+                } else {
+                    throw new Exception("Gagal mengubah status pembayaran. Mungkin sudah dalam status yang sama atau ID tidak ditemukan.");
+                }
+                $stmt->close();
+            } elseif ($action === 'delete_sales_data') {
+                // Hapus data penjualan dan masak
+                $stmt_delete_sales = $conn->prepare("DELETE FROM sales_data WHERE employee_id = ?");
+                if (!$stmt_delete_sales) {
+                    throw new Exception("Gagal menyiapkan query hapus data penjualan: " . $conn->error);
+                }
+                $stmt_delete_sales->bind_param("i", $employee_id);
+                $stmt_delete_sales->execute();
+                $stmt_delete_sales->close();
+
+                // Hapus log jam kerja dengan status 'completed'
+                $stmt_delete_duty = $conn->prepare("DELETE FROM duty_logs WHERE employee_id = ? AND status = 'completed'");
+                if (!$stmt_delete_duty) {
+                    throw new Exception("Gagal menyiapkan query hapus log jam kerja: " . $conn->error);
+                }
+                $stmt_delete_duty->bind_param("i", $employee_id);
+                $stmt_delete_duty->execute();
+                $stmt_delete_duty->close();
+
+                $conn->commit();
+                $success_message = "Semua data penjualan, masak, dan jam kerja (completed) untuk **" . htmlspecialchars($employee_name) . "** telah berhasil dihapus.";
+            }
         }
 
     } catch (Exception $e) {
@@ -148,7 +158,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     exit;
 }
 
-// Fungsi bantu untuk mendapatkan nama karyawan berdasarkan ID
 function getEmployeeNameById($id) {
     global $conn;
     $stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
@@ -159,8 +168,6 @@ function getEmployeeNameById($id) {
     return $result['name'] ?? 'Tidak Dikenal';
 }
 
-
-// Menampilkan pesan feedback setelah redirect
 if (isset($_GET['msg']) && isset($_GET['type'])) {
     $feedback_message = htmlspecialchars($_GET['msg']);
     $feedback_type = htmlspecialchars($_GET['type']);
@@ -171,10 +178,8 @@ if (isset($_GET['msg']) && isset($_GET['type'])) {
     }
 }
 
-
-// Ambil data semua anggota aktif (termasuk status is_paid)
 $employees_data = [];
-$total_payroll_expenditure = 0; // Inisialisasi total pengeluaran gaji
+$total_payroll_expenditure = 0;
 
 $stmt = $conn->query("
     SELECT e.id, e.name, e.role, e.is_on_duty, e.is_paid,
@@ -234,19 +239,16 @@ foreach ($employees_raw_data as $employee) {
     $nominal_bonus_lembur_perjam = 0;
     $total_bonus_lembur = 0;
 
-    // Hitung Gaji pokok
     $gaji_pokok = 0;
     if ($total_duty_minutes >= $min_duty_minutes_for_base_salary && isset($base_salaries[$employee_role])) {
         $gaji_pokok = $base_salaries[$employee_role];
     }
 
-    // Hitung Bonus Jam Duty 21 Jam
     $bonus_21_jam = 0;
     if ($total_duty_minutes >= $min_duty_minutes_for_bonus) {
         $bonus_21_jam = $duty_21_hour_bonus;
     }
 
-    // Hitung Jam Lembur dan Bonus Lembur
     if ($total_duty_minutes > $min_duty_minutes_for_bonus) {
         $overtime_minutes_raw = $total_duty_minutes - $min_duty_minutes_for_bonus;
         $overtime_minutes = min($overtime_minutes_raw, $overtime_cap_minutes);
@@ -259,15 +261,36 @@ foreach ($employees_raw_data as $employee) {
             $total_bonus_lembur = ($overtime_minutes / 60) * $nominal_bonus_lembur_perjam;
         }
     }
-
-    // Hitung Bonus Penjualan
+    
+    // Perubahan: Bonus penjualan didapat jika penjualan paket mencapai 400
     $total_penjualan_paket = $total_paket_makan_minum_warga + $total_paket_makan_minum_instansi + $total_paket_snack;
     $bonus_penjualan = 0;
-    if ($total_penjualan_paket >= $sales_bonus_threshold) {
-        $bonus_penjualan = $sales_bonus_amount;
+    if (in_array($employee_role, ['karyawan', 'magang'])) {
+        if ($total_penjualan_paket >= $sales_bonus_threshold) {
+            $bonus_penjualan = $sales_bonus_amount;
+        }
     }
 
-    // Hitung Total Gaji
+    $is_bonus_cut = false;
+    $performance_indicator_text = '';
+
+    if (in_array($employee_role, ['karyawan', 'magang'])) {
+        if ($total_penjualan_paket < $performance_cut_off_threshold) {
+            $bonus_21_jam *= 0.5;
+            $total_bonus_lembur *= 0.5;
+            $is_bonus_cut = true;
+            $performance_indicator_text = $total_penjualan_paket . ' Paket';
+        }
+    } elseif ($employee_role === 'chef') {
+        $total_masak_packages = $total_masak_paket + $total_masak_snack;
+        if ($total_masak_packages < $performance_cut_off_threshold) {
+            $bonus_21_jam *= 0.5;
+            $total_bonus_lembur *= 0.5;
+            $is_bonus_cut = true;
+            $performance_indicator_text = $total_masak_packages . ' Masak';
+        }
+    }
+    
     $total_gajian = $gaji_pokok + $bonus_21_jam + $total_bonus_lembur + $bonus_penjualan;
     $total_payroll_expenditure += $total_gajian;
 
@@ -283,6 +306,7 @@ foreach ($employees_raw_data as $employee) {
         'total_masak_paket' => $total_masak_paket,
         'total_masak_snack' => $total_masak_snack,
         'total_sales_packages' => $total_penjualan_paket,
+        'total_masak_packages' => $total_masak_paket + $total_masak_snack,
         'overtime_hours_display' => $overtime_hours_display,
         'overtime_remaining_minutes' => $overtime_remaining_minutes,
         'gaji_pokok' => $gaji_pokok,
@@ -291,6 +315,7 @@ foreach ($employees_raw_data as $employee) {
         'total_bonus_lembur' => $total_bonus_lembur,
         'bonus_21_jam' => $bonus_21_jam,
         'total_gajian' => $total_gajian,
+        'is_bonus_cut' => $is_bonus_cut
     ];
 }
 
@@ -388,9 +413,11 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
         }
         .action-column {
             display: flex;
+            flex-direction: column;
             gap: 0.5rem;
             flex-wrap: wrap;
             justify-content: flex-end;
+            align-items: flex-end;
         }
         .action-column .btn {
             padding: 0.4rem 0.8rem;
@@ -403,7 +430,6 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                 padding: 0.6rem;
             }
             .action-column {
-                flex-direction: column;
                 align-items: stretch;
             }
         }
@@ -499,7 +525,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                     <th>Nama</th>
                                     <th>Jabatan</th>
                                     <th>Total Jam Duty</th>
-                                    <th>Total Penjualan</th>
+                                    <th>Total Penjualan/Masak</th>
                                     <th>Jam Lembur</th>
                                     <th>Gaji Pokok</th>
                                     <th>Bonus Penjualan</th>
@@ -535,12 +561,15 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                             <?= formatDuration($employee['total_duty_minutes']) ?>
                                         </td>
                                         <td data-label="Total Penjualan">
-                                            <?= $employee['total_sales_packages'] ?> Paket
+                                            <?= $employee['role'] === 'chef' ? $employee['total_masak_packages'] . ' Masak' : $employee['total_sales_packages'] . ' Paket' ?>
                                         </td>
                                         <td data-label="Jam Lembur">
                                             <?php 
                                             echo $employee['overtime_hours_display'] . 'j ' . $employee['overtime_remaining_minutes'] . 'm';
                                             ?>
+                                            <?php if ($employee['is_bonus_cut']): ?>
+                                                <small style="display: block; color: var(--danger-color); font-weight: 600;">(Potongan 50%)</small>
+                                            <?php endif; ?>
                                         </td>
                                         <td data-label="Gaji Pokok">
                                             <?= 'Rp ' . number_format($employee['gaji_pokok'], 0, ',', '.') ?>
@@ -567,7 +596,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                         </td>
                                         <td data-label="Aksi" class="action-column">
                                             <?php if (!$employee['is_paid']): ?>
-                                            <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menandai gaji <?= htmlspecialchars($employee['name']) ?> sebagai Sudah Dibayar? Tindakan ini akan menghapus data penjualan dan masak anggota tersebut.')">
+                                            <form method="POST" style="display: inline;" onsubmit="return confirm('Yakin ingin menandai gaji <?= htmlspecialchars($employee['name']) ?> sebagai Sudah Dibayar? Status akan tersimpan.')">
                                                 <input type="hidden" name="action" value="mark_paid">
                                                 <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
                                                 <button type="submit" class="btn btn-success btn-sm">Tandai Dibayar</button>
@@ -579,6 +608,11 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                                 <button type="submit" class="btn btn-warning btn-sm">Batal Dibayar</button>
                                             </form>
                                             <?php endif; ?>
+                                            <form method="POST" style="display: inline; margin-top: 5px;" onsubmit="return confirm('Yakin ingin menghapus data penjualan dan masak untuk <?= htmlspecialchars($employee['name']) ?>? Tindakan ini tidak dapat dibatalkan.')">
+                                                <input type="hidden" name="action" value="delete_sales_data">
+                                                <input type="hidden" name="employee_id" value="<?= $employee['id'] ?>">
+                                                <button type="submit" class="btn btn-danger btn-sm">Hapus Data Penjualan</button>
+                                            </form>
                                             <a href="generate-payslip.php?employee_id=<?= $employee['id'] ?>" target="_blank" class="btn btn-primary btn-sm">Unduh Slip Gaji</a>
                                         </td>
                                     </tr>
