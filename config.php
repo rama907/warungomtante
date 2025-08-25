@@ -1,7 +1,7 @@
 <?php
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+error_reporting(E_ALL & ~E_NOTICE);
 // Database configuration
 define('DB_HOST', 'localhost');
 define('DB_USER', 'warungom_db_absensi_omtante');
@@ -68,11 +68,11 @@ function getRoleDisplayName($role) {
 function sendDiscordNotification($data, $type = 'info') {
     // URL Webhook Discord Anda
     // Webhook pertama (untuk SEMUA notifikasi)
-    $general_webhook_url = 'https://discord.com/api/webhooks/1389455043362689189/xdkSg5PDEedaPuxLaxEGOythlsAFGIm5b-fb-GJh4tcCMgGar7t_uk9-XsMzObDF69Tx';
+    $general_webhook_url = 'https://discord.com/api/webhooks/1402014520385212577/my5MJe5VIHHA9K6RX5TAYal9vHG4VUUlKHiy4qFGHSaXhnns1ixnCXI9qxBIBa41vpbi';
 
     // Webhook kedua (KHUSUS untuk pengajuan dan pembaruan status permohonan)
     // GANTI DENGAN URL WEBHOOK KEDUA ANDA DI SINI
-    $request_webhook_url = 'https://discord.com/api/webhooks/1388990746073497620/OhXDG3FCAs1C2bMSttYJubDnEtwXl0OxSn8TKlbLu0JD5LJD1iaFp6Hwg_jcDkr6sHGF'; // <--- PASTIKAN INI DIGANTI!
+    $request_webhook_url = 'https://discord.com/api/webhooks/1402014726195511548/IO3d24hho1AyxSLnTaYpCYk9Q5j_IFpt9HLPMLzA5d4CJBeKdVPjIo0H0F65cFh_aSwV'; // <--- PASTIKAN INI DIGANTI!
 
     $webhooks_to_send = [$general_webhook_url]; // Default: selalu kirim ke webhook umum
 

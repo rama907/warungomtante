@@ -15,54 +15,66 @@ $selected_employee_id = null;
 $employee_duty_logs = [];
 $selected_employee_name = 'Pilih Anggota';
 
-// Handle delete duty log
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_duty_log') {
-    $duty_log_id = (int)($_POST['duty_log_id'] ?? 0);
-    $employee_id_of_log = (int)($_POST['employee_id_of_log'] ?? 0); // ID anggota pemilik log
+// Handle delete duty log (multiple or single)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_duty_logs') {
+    $duty_log_ids = $_POST['duty_log_ids'] ?? [];
+    $employee_id_of_log = (int)($_POST['employee_id_of_log'] ?? 0);
 
-    if ($duty_log_id <= 0 || $employee_id_of_log <= 0) {
-        $error = "ID log duty tidak valid!";
+    if ($employee_id_of_log <= 0) {
+        $error = "ID anggota tidak valid!";
+    } elseif (empty($duty_log_ids)) {
+        $error = "Tidak ada log jam kerja yang dipilih untuk dihapus.";
     } else {
         $conn->begin_transaction();
         try {
+            $deleted_count = 0;
+            $deleted_logs = [];
+
+            $placeholders = implode(',', array_fill(0, count($duty_log_ids), '?'));
+            $types = str_repeat('i', count($duty_log_ids)) . 'i'; // Perbaikan di sini: Tambahkan 'i' untuk employee_id
+            $params = $duty_log_ids;
+            $params[] = $employee_id_of_log;
+
             // Ambil detail log sebelum dihapus untuk notifikasi
-            $stmt_get_log = $conn->prepare("
+            $stmt_get_logs = $conn->prepare("
                 SELECT dl.*, e.name as employee_name
                 FROM duty_logs dl
                 JOIN employees e ON dl.employee_id = e.id
-                WHERE dl.id = ? AND dl.employee_id = ?
+                WHERE dl.id IN ($placeholders) AND dl.employee_id = ?
             ");
-            if (!$stmt_get_log) {
+            if (!$stmt_get_logs) {
                 throw new Exception("Gagal menyiapkan query ambil detail log: " . $conn->error);
             }
-            $stmt_get_log->bind_param("ii", $duty_log_id, $employee_id_of_log);
-            $stmt_get_log->execute();
-            $log_details = $stmt_get_log->get_result()->fetch_assoc();
-            $stmt_get_log->close();
-
-            if (!$log_details) {
-                throw new Exception("Log duty tidak ditemukan atau bukan milik anggota tersebut.");
+            $stmt_get_logs->bind_param($types, ...$params); // Perbaikan di sini: gunakan $types dan $params yang sudah diperbarui
+            $stmt_get_logs->execute();
+            $result = $stmt_get_logs->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $deleted_logs[] = $row;
             }
+            $stmt_get_logs->close();
 
             // Hapus log duty
-            $stmt_delete = $conn->prepare("DELETE FROM duty_logs WHERE id = ? AND employee_id = ?");
+            $delete_stmt_sql = "DELETE FROM duty_logs WHERE id IN ($placeholders) AND employee_id = ?";
+            $stmt_delete = $conn->prepare($delete_stmt_sql);
             if (!$stmt_delete) {
                 throw new Exception("Gagal menyiapkan query hapus log duty: " . $conn->error);
             }
-            $stmt_delete->bind_param("ii", $duty_log_id, $employee_id_of_log);
+            $stmt_delete->bind_param($types, ...$params);
             
-            if ($stmt_delete->execute() && $stmt_delete->affected_rows > 0) {
+            if ($stmt_delete->execute()) {
+                $deleted_count = $stmt_delete->affected_rows;
                 $conn->commit();
-                $success = "Log jam kerja pada tanggal " . date('d/m/Y H:i', strtotime($log_details['duty_start'])) . " untuk **" . htmlspecialchars($log_details['employee_name']) . "** berhasil dihapus. Saran: Informasikan anggota untuk menginput ulang jam kerja ini dengan `Input Manual` jika diperlukan.";
+                $success = "Berhasil menghapus {$deleted_count} log jam kerja untuk **" . htmlspecialchars($deleted_logs[0]['employee_name']) . "**. Saran: Informasikan anggota untuk menginput ulang jam kerja ini dengan `Input Manual` jika diperlukan.";
 
-                // Kirim notifikasi Discord
-                sendDiscordNotification([
-                    'employee_name' => $log_details['employee_name'],
-                    'admin_name' => $user['name'],
-                    'duty_start' => $log_details['duty_start'],
-                    'duty_end' => $log_details['duty_end'],
-                    'duration_minutes' => $log_details['duration_minutes']
-                ], 'duty_log_deleted');
+                foreach ($deleted_logs as $log_details) {
+                    sendDiscordNotification([
+                        'employee_name' => $log_details['employee_name'],
+                        'admin_name' => $user['name'],
+                        'duty_start' => $log_details['duty_start'],
+                        'duty_end' => $log_details['duty_end'],
+                        'duration_minutes' => $log_details['duration_minutes']
+                    ], 'duty_log_deleted');
+                }
 
             } else {
                 throw new Exception("Gagal menghapus log duty. Mungkin sudah dihapus atau tidak ada perubahan.");
@@ -119,6 +131,27 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
+    <style>
+        .select-all-checkbox {
+            margin: 0;
+            padding: 0;
+            vertical-align: middle;
+        }
+        .table-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 1rem;
+            gap: 1rem;
+        }
+        @media (max-width: 768px) {
+            .table-actions {
+                flex-direction: column;
+            }
+            .table-actions .btn {
+                width: 100%;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard-container">
@@ -135,11 +168,11 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
             </div>
 
             <?php if (isset($success)): ?>
-                <div class="success-message"><?= $success ?></div>
+                <div class="success-message">🎉 <?= $success ?></div>
             <?php endif; ?>
             
             <?php if (isset($error)): ?>
-                <div class="error-message"><?= $error ?></div>
+                <div class="error-message">❌ <?= $error ?></div>
             <?php endif; ?>
 
             <div class="card">
@@ -170,53 +203,56 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                         <?php if (empty($employee_duty_logs)): ?>
                             <div class="no-data">Belum ada riwayat jam kerja untuk anggota ini.</div>
                         <?php else: ?>
-                            <div class="responsive-table-container">
-                                <table class="activities-table-improved">
-                                    <thead>
-                                        <tr>
-                                            <th>Tanggal</th>
-                                            <th>Mulai</th>
-                                            <th>Selesai</th>
-                                            <th>Durasi</th>
-                                            <th>Tipe</th>
-                                            <th>Status</th>
-                                            <th>Disetujui Oleh</th>
-                                            <th>Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($employee_duty_logs as $log): ?>
-                                        <tr>
-                                            <td data-label="Tanggal"><?= date('d/m/Y', strtotime($log['duty_start'])) ?></td>
-                                            <td data-label="Mulai"><?= date('H:i', strtotime($log['duty_start'])) ?></td>
-                                            <td data-label="Selesai"><?= $log['duty_end'] ? date('H:i', strtotime($log['duty_end'])) : 'Berlangsung' ?></td>
-                                            <td data-label="Durasi"><?= $log['duty_end'] ? formatDuration($log['duration_minutes']) : 'Berlangsung' ?></td>
-                                            <td data-label="Tipe">
-                                                <span class="status-badge status-<?= $log['is_manual'] ? 'warning' : 'info' ?>">
-                                                    <?= $log['is_manual'] ? 'Manual' : 'Otomatis' ?>
-                                                </span>
-                                            </td>
-                                            <td data-label="Status">
-                                                <span class="status-badge status-<?= $log['status'] ?>">
-                                                    <?= ucfirst($log['status']) ?>
-                                                </span>
-                                            </td>
-                                            <td data-label="Disetujui Oleh">
-                                                <?= $log['approved_by_name'] ? htmlspecialchars($log['approved_by_name']) : '-' ?>
-                                            </td>
-                                            <td data-label="Aksi">
-                                                <form method="POST" onsubmit="return confirm('Yakin ingin menghapus log jam kerja ini? Aksi ini TIDAK DAPAT DIBATALKAN dan notifikasi akan dikirim ke Discord.')">
-                                                    <input type="hidden" name="action" value="delete_duty_log">
-                                                    <input type="hidden" name="duty_log_id" value="<?= $log['id'] ?>">
-                                                    <input type="hidden" name="employee_id_of_log" value="<?= $selected_employee_id ?>">
-                                                    <button type="submit" class="btn btn-danger btn-sm">Hapus</button>
-                                                </form>
-                                            </td>
-                                        </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
+                            <form method="POST" id="delete-multiple-form">
+                                <input type="hidden" name="action" value="delete_duty_logs">
+                                <input type="hidden" name="employee_id_of_log" value="<?= $selected_employee_id ?>">
+                                <div class="responsive-table-container">
+                                    <table class="activities-table-improved">
+                                        <thead>
+                                            <tr>
+                                                <th><input type="checkbox" id="select-all-checkbox" class="select-all-checkbox"></th>
+                                                <th>Tanggal</th>
+                                                <th>Mulai</th>
+                                                <th>Selesai</th>
+                                                <th>Durasi</th>
+                                                <th>Tipe</th>
+                                                <th>Status</th>
+                                                <th>Disetujui Oleh</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($employee_duty_logs as $log): ?>
+                                            <tr>
+                                                <td><input type="checkbox" name="duty_log_ids[]" value="<?= $log['id'] ?>" class="row-checkbox"></td>
+                                                <td data-label="Tanggal"><?= date('d/m/Y', strtotime($log['duty_start'])) ?></td>
+                                                <td data-label="Mulai"><?= date('H:i', strtotime($log['duty_start'])) ?></td>
+                                                <td data-label="Selesai"><?= $log['duty_end'] ? date('H:i', strtotime($log['duty_end'])) : 'Berlangsung' ?></td>
+                                                <td data-label="Durasi"><?= $log['duty_end'] ? formatDuration($log['duration_minutes']) : 'Berlangsung' ?></td>
+                                                <td data-label="Tipe">
+                                                    <span class="status-badge status-<?= $log['is_manual'] ? 'warning' : 'info' ?>">
+                                                        <?= $log['is_manual'] ? 'Manual' : 'Otomatis' ?>
+                                                    </span>
+                                                </td>
+                                                <td data-label="Status">
+                                                    <span class="status-badge status-<?= $log['status'] ?>">
+                                                        <?= ucfirst($log['status']) ?>
+                                                    </span>
+                                                </td>
+                                                <td data-label="Disetujui Oleh">
+                                                    <?= $log['approved_by_name'] ? htmlspecialchars($log['approved_by_name']) : '-' ?>
+                                                </td>
+                                            </tr>
+                                            <?php endforeach; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="table-actions">
+                                    <button type="submit" class="btn btn-danger" id="delete-selected-btn" disabled
+                                        onclick="return confirm('Yakin ingin menghapus semua log jam kerja yang dipilih? Aksi ini TIDAK DAPAT DIBATALKAN dan notifikasi akan dikirim ke Discord.')">
+                                        Hapus yang Dipilih
+                                    </button>
+                                </div>
+                            </form>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -225,5 +261,34 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
     </div>
 
     <script src="script.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            const rowCheckboxes = document.querySelectorAll('.row-checkbox');
+            const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+
+            if (selectAllCheckbox) {
+                selectAllCheckbox.addEventListener('change', function() {
+                    rowCheckboxes.forEach(checkbox => {
+                        checkbox.checked = this.checked;
+                    });
+                    updateDeleteButtonState();
+                });
+            }
+
+            rowCheckboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    updateDeleteButtonState();
+                });
+            });
+
+            function updateDeleteButtonState() {
+                const anyChecked = Array.from(rowCheckboxes).some(checkbox => checkbox.checked);
+                if (deleteSelectedBtn) {
+                    deleteSelectedBtn.disabled = !anyChecked;
+                }
+            }
+        });
+    </script>
 </body>
 </html>

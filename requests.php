@@ -253,26 +253,26 @@ if ($result_manual === false) {
             <?php 
             // Menampilkan pesan berdasarkan message_type
             if (isset($success) && $message_type === 'success'): ?>
-                <div class="success-message"><?= htmlspecialchars($success) ?></div>
+                <div class="success-message">🎉 <?= htmlspecialchars($success) ?></div>
             <?php elseif (isset($success) && $message_type === 'error'): // Jika success tapi type-nya error (misal penolakan) ?>
-                <div class="error-message"><?= htmlspecialchars($success) ?></div>
+                <div class="error-message">❌ <?= htmlspecialchars($success) ?></div>
             <?php elseif (isset($error)): // Jika ada error (pesan kegagalan) ?>
-                <div class="error-message"><?= htmlspecialchars($error) ?></div>
+                <div class="error-message">❌ <?= htmlspecialchars($error) ?></div>
             <?php endif; ?>
 
             <div class="requests-tabs">
-                <button class="tab-button active" onclick="showTab('leave')">
+                <button class="tab-button" onclick="showTab('leave')">
                     Cuti (<?= count($leave_requests) ?>)
                 </button>
                 <button class="tab-button" onclick="showTab('resignation')">
                     Resign (<?= count($resignation_requests) ?>)
                 </button>
-                <button class="tab-button" onclick="showTab('manual')">
+                <button class="tab-button active" onclick="showTab('manual')">
                     Input Manual (<?= count($manual_duty_requests) ?>)
                 </button>
             </div>
 
-            <div id="leave-tab" class="tab-content active">
+            <div id="leave-tab" class="tab-content">
                 <div class="card">
                     <div class="card-header">
                         <h3>Permohonan Cuti</h3>
@@ -390,7 +390,7 @@ if ($result_manual === false) {
                     </div>
                 </div>
 
-                <div id="manual-tab" class="tab-content">
+                <div id="manual-tab" class="tab-content active">
                     <div class="card">
                         <div class="card-header">
                             <h3>Permohonan Input Jam Manual</h3>

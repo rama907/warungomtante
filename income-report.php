@@ -7,23 +7,23 @@ if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur', 'manager'])) {
 }
 
 $user = getCurrentUser();
-$pending_requests_count = getPendingRequestCount(); // Untuk sidebar
+$pending_requests_count = getPendingRequestCount();
 
 // Definisi harga per paket
 $price_warga = 25000;
 $price_instansi = 18000;
-$price_snack = 15000; // Harga per paket snack
+$price_snack = 15000;
 
 $total_income_warga = 0;
 $total_income_instansi = 0;
-$total_income_snack = 0; // Inisialisasi total pemasukan snack
+$total_income_snack = 0;
 $overall_total_income = 0;
 
 $total_warga_packages = 0;
 $total_instansi_packages = 0;
-$total_snack_packages = 0; // Inisialisasi total paket snack
+$total_snack_packages = 0;
 
-// Ambil total paket makan minum warga, instansi, dan snack dari sales_data secara menyeluruh
+// Ambil total pemasukan dari sales_data secara menyeluruh
 $stmt = $conn->prepare("
     SELECT
         COALESCE(SUM(paket_makan_minum_warga), 0) as sum_warga,
@@ -38,17 +38,26 @@ $stmt->close();
 if ($result) {
     $total_warga_packages = $result['sum_warga'];
     $total_instansi_packages = $result['sum_instansi'];
-    $total_snack_packages = $result['sum_snack']; // Ambil jumlah paket snack
+    $total_snack_packages = $result['sum_snack'];
 
     $total_income_warga = $total_warga_packages * $price_warga;
     $total_income_instansi = $total_instansi_packages * $price_instansi;
-    $total_income_snack = $total_snack_packages * $price_snack; // Hitung pemasukan snack
+    $total_income_snack = $total_snack_packages * $price_snack;
 
-    $overall_total_income = $total_income_warga + $total_income_instansi + $total_income_snack; // Tambahkan pemasukan snack ke total
+    $overall_total_income = $total_income_warga + $total_income_instansi + $total_income_snack;
 }
 
-// --- Data untuk Grafik Omset Per Hari ---
+// --- Data untuk Grafik Omset Mingguan (Senin-Minggu) ---
 $daily_revenue_data = [];
+$today = new DateTime();
+$start_of_week = clone $today;
+// Perbaikan: Pastikan hari Senin benar, baik hari ini adalah Senin atau bukan
+if ($start_of_week->format('N') != 1) { // 1 = Senin
+    $start_of_week->modify('last Monday');
+}
+$end_of_week = clone $start_of_week;
+$end_of_week->modify('+6 days');
+
 $stmt_daily = $conn->prepare("
     SELECT
         date,
@@ -56,27 +65,33 @@ $stmt_daily = $conn->prepare("
         SUM(paket_makan_minum_instansi) as sum_instansi_daily,
         SUM(paket_snack) as sum_snack_daily
     FROM sales_data
+    WHERE date BETWEEN ? AND ?
     GROUP BY date
     ORDER BY date ASC
 ");
+$stmt_daily->bind_param("ss", $start_of_week->format('Y-m-d'), $end_of_week->format('Y-m-d'));
 $stmt_daily->execute();
 $daily_results = $stmt_daily->get_result();
 
-$chart_labels = [];
-$chart_data_revenue = [];
-
+$chart_data_from_db = [];
 while ($row = $daily_results->fetch_assoc()) {
-    $date_label = date('d/m/Y', strtotime($row['date']));
-    $daily_omset = ($row['sum_warga_daily'] * $price_warga) +
-                   ($row['sum_instansi_daily'] * $price_instansi) +
-                   ($row['sum_snack_daily'] * $price_snack);
-    
-    $chart_labels[] = $date_label;
-    $chart_data_revenue[] = $daily_omset;
+    $chart_data_from_db[$row['date']] = (float) ($row['sum_warga_daily'] * $price_warga) +
+                                         (float) ($row['sum_instansi_daily'] * $price_instansi) +
+                                         (float) ($row['sum_snack_daily'] * $price_snack);
 }
 $stmt_daily->close();
 
-// Encode data grafik ke JSON untuk JavaScript
+$chart_labels = [];
+$chart_data_revenue = [];
+for ($i = 0; $i < 7; $i++) {
+    $current_date = clone $start_of_week;
+    $current_date->modify("+{$i} days");
+    $formatted_date_for_db = $current_date->format('Y-m-d');
+    
+    $chart_labels[] = $current_date->format('D, d M');
+    $chart_data_revenue[] = $chart_data_from_db[$formatted_date_for_db] ?? 0;
+}
+
 $chart_labels_json = json_encode($chart_labels);
 $chart_data_revenue_json = json_encode($chart_data_revenue);
 
@@ -91,7 +106,6 @@ $stmt_logs = $conn->prepare("
         sd.paket_makan_minum_warga,
         sd.paket_makan_minum_instansi,
         sd.paket_snack,
-        -- Hapus sd.masak_paket, sd.masak_snack karena tidak dihitung dalam omset
         e.name as employee_name
     FROM sales_data sd
     JOIN employees e ON sd.employee_id = e.id
@@ -112,13 +126,10 @@ while ($row = $log_results->fetch_assoc()) {
         'paket_makan_minum_warga' => $row['paket_makan_minum_warga'],
         'paket_makan_minum_instansi' => $row['paket_makan_minum_instansi'],
         'paket_snack' => $row['paket_snack'],
-        // Hapus 'masak_paket' => $row['masak_paket'],
-        // Hapus 'masak_snack' => $row['masak_snack'],
         'omset_transaksi' => $transaction_omset
     ];
 }
 $stmt_logs->close();
-
 
 // --- Fungsionalitas Unduh Laporan Detail untuk Audit ---
 if (isset($_GET['export']) && $_GET['export'] == 'detailed_income') {
@@ -139,7 +150,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'detailed_income') {
         'Paket M&M Warga (Jumlah)',
         'Paket M&M Instansi (Jumlah)',
         'Paket Snack (Jumlah)',
-        'Omset Transaksi (Rp)' // Masak paket/snack dihilangkan dari sini juga
+        'Omset Transaksi (Rp)'
     ];
     fputcsv($output, $headers);
 
@@ -160,8 +171,6 @@ if (isset($_GET['export']) && $_GET['export'] == 'detailed_income') {
     exit;
 }
 
-
-// Fungsi format mata uang
 function formatRupiah($amount) {
     return 'Rp ' . number_format($amount, 0, ',', '.') . '';
 }
@@ -232,8 +241,8 @@ function formatRupiah($amount) {
             box-shadow: var(--shadow-sm);
             padding: var(--spacing-xl);
             margin-top: var(--spacing-2xl);
-            width: 100%; /* Pastikan grafik mengisi lebar penuh */
-            height: 550px; /* PERBAIKAN: Tinggi grafik diperbesar */
+            width: 100%;
+            height: 550px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -246,13 +255,13 @@ function formatRupiah($amount) {
             text-align: center;
         }
         .chart-canvas-wrapper {
-            position: relative; /* Untuk memastikan canvas mengisi container */
+            position: relative;
             width: 100%;
             height: 100%;
         }
         #dailyRevenueChart {
-            max-width: 100%; /* Pastikan canvas tidak melebihi lebar container */
-            max-height: 100%; /* Pastikan canvas tidak melebihi tinggi container */
+            max-width: 100%;
+            max-height: 100%;
         }
 
         /* Styles for Logs Omset table */
@@ -265,7 +274,7 @@ function formatRupiah($amount) {
             padding: var(--spacing-xl);
         }
         .logs-omset-section .card-header {
-            padding: 0; /* Override default card-header padding as it's already in section */
+            padding: 0;
             border-bottom: none;
             margin-bottom: var(--spacing-xl);
         }
@@ -275,18 +284,16 @@ function formatRupiah($amount) {
             color: var(--text-primary);
             margin-bottom: var(--spacing-xl);
         }
-        /* Penyesuaian untuk tampilan tabel agar lebih padat di log */
         .logs-omset-section .activities-table-improved th,
         .logs-omset-section .activities-table-improved td {
-            padding: var(--spacing-sm); /* Padding lebih kecil */
-            font-size: 0.85rem; /* Ukuran font lebih kecil */
-            vertical-align: middle; /* Pusatkan teks vertikal */
+            padding: var(--spacing-sm);
+            font-size: 0.85rem;
+            vertical-align: middle;
         }
         .logs-omset-section .activities-table-improved .employee-name-cell {
-            white-space: normal; /* Izinkan wrapping untuk nama anggota */
+            white-space: normal;
         }
-        /* PERBAIKAN PENTING: Gaya untuk memastikan display tabel standar pada layar lebar */
-        @media (min-width: 769px) { /* Jika di atas 768px, gunakan display tabel normal */
+        @media (min-width: 769px) {
             .logs-omset-section .activities-table-improved thead {
                 display: table-header-group;
             }
@@ -295,64 +302,63 @@ function formatRupiah($amount) {
             }
             .logs-omset-section .activities-table-improved td {
                 display: table-cell;
-                padding-left: var(--spacing-sm); /* Reset padding-left mobile */
-                text-align: left; /* Default text alignment */
-                white-space: nowrap; /* Cegah wrapping default kecuali yang diizinkan */
+                padding-left: var(--spacing-sm);
+                text-align: left;
+                white-space: nowrap;
             }
-            .logs-omset-section .activities-table-improved td:first-child { /* Tanggal & Waktu */
+            .logs-omset-section .activities-table-improved td:first-child {
                  width: 18%;
                  min-width: 120px;
                  text-align: left;
             }
-            .logs-omset-section .activities-table-improved td:nth-child(2) { /* Nama Anggota */
+            .logs-omset-section .activities-table-improved td:nth-child(2) {
                  width: 20%;
                  min-width: 150px;
-                 white-space: normal; /* Izinkan wrapping untuk nama */
+                 white-space: normal;
             }
-            .logs-omset-section .activities-table-improved td:nth-child(3), /* P. M&M Warga */
-            .logs-omset-section .activities-table-improved td:nth-child(4), /* P. M&M Instansi */
-            .logs-omset-section .activities-table-improved td:nth-child(5) { /* Paket Snack */
+            .logs-omset-section .activities-table-improved td:nth-child(3),
+            .logs-omset-section .activities-table-improved td:nth-child(4),
+            .logs-omset-section .activities-table-improved td:nth-child(5) {
                 width: 15%;
                 min-width: 80px;
                 text-align: center;
             }
-            .logs-omset-section .activities-table-improved td:last-child { /* Omset Transaksi */
+            .logs-omset-section .activities-table-improved td:last-child {
                 width: 17%;
                 min-width: 100px;
                 text-align: right;
             }
 
             .logs-omset-section .activities-table-improved td:before {
-                content: none; /* Sembunyikan data-label pada layar lebar */
+                content: none;
             }
         }
-        /* Mobile specific adjustments (re-apply mobile styles within this section's context) */
         @media (max-width: 768px) {
             .logs-omset-section .activities-table-improved thead {
-                display: none; /* Hide header on small screens */
+                display: none;
             }
             .logs-omset-section .activities-table-improved,
             .logs-omset-section .activities-table-improved tbody,
             .logs-omset-section .activities-table-improved tr,
             .logs-omset-section .activities-table-improved td {
-                display: block; /* Stack on small screens */
+                display: block;
             }
             .logs-omset-section .activities-table-improved tr {
                 margin-bottom: var(--spacing-md);
                 padding: var(--spacing-md);
             }
             .logs-omset-section .activities-table-improved td {
-                padding: var(--spacing-xs) 0; /* Adjust padding for stacked cells */
-                padding-left: 45%; /* Space for data-label */
+                padding: var(--spacing-xs) 0;
+                padding-left: 45%;
                 position: relative;
                 text-align: left;
-                white-space: normal; /* Allow wrapping */
+                white-space: normal;
             }
             .logs-omset-section .activities-table-improved td:before {
-                content: attr(data-label) ": "; /* Show data-label */
+                content: attr(data-label) ": ";
                 position: absolute;
                 left: 6px;
-                width: 40%; /* Width of the label */
+                width: 40%;
                 white-space: nowrap;
                 font-weight: bold;
                 color: var(--text-secondary);
@@ -411,7 +417,7 @@ function formatRupiah($amount) {
             </div>
 
             <div class="chart-container">
-                <h3>Grafik Omset Harian</h3>
+                <h3>Grafik Omset Mingguan</h3>
                 <div class="chart-canvas-wrapper">
                     <canvas id="dailyRevenueChart"></canvas>
                 </div>
@@ -461,27 +467,26 @@ function formatRupiah($amount) {
     <script src="script.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Data dari PHP
             const chartLabels = <?= $chart_labels_json ?>;
             const chartDataRevenue = <?= $chart_data_revenue_json ?>;
 
             const ctx = document.getElementById('dailyRevenueChart').getContext('2d');
             new Chart(ctx, {
-                type: 'bar', // Anda bisa mencoba 'line' juga
+                type: 'bar',
                 data: {
                     labels: chartLabels,
                     datasets: [{
                         label: 'Omset Harian (Rp)',
                         data: chartDataRevenue,
-                        backgroundColor: 'rgba(59, 130, 246, 0.6)', // Warna biru primary-color
+                        backgroundColor: 'rgba(59, 130, 246, 0.6)',
                         borderColor: 'rgba(59, 130, 246, 1)',
                         borderWidth: 1,
-                        borderRadius: 5, // Sudut bulat untuk bar
+                        borderRadius: 5,
                     }]
                 },
                 options: {
                     responsive: true,
-                    maintainAspectRatio: false, // Penting agar grafik mengisi container parent
+                    maintainAspectRatio: false,
                     scales: {
                         y: {
                             beginAtZero: true,
@@ -491,7 +496,7 @@ function formatRupiah($amount) {
                             },
                             ticks: {
                                 callback: function(value, index, ticks) {
-                                    return 'Rp ' + value.toLocaleString('id-ID'); // Format mata uang
+                                    return 'Rp ' + value.toLocaleString('id-ID');
                                 }
                             }
                         },

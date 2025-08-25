@@ -34,10 +34,16 @@ $overtime_hourly_bonus = [
     'magang' => 15000,
 ];
 
-$min_duty_hours_for_bonus = 21; // 21 jam untuk bonus jam duty
-$min_duty_minutes_for_bonus = $min_duty_hours_for_bonus * 60; // Konversi ke menit
+$min_duty_hours_for_base_salary = 5;
+$min_duty_minutes_for_base_salary = $min_duty_hours_for_base_salary * 60;
 
-$sales_bonus_threshold = 300; // 300 paket untuk bonus penjualan
+$min_duty_hours_for_bonus = 21;
+$min_duty_minutes_for_bonus = $min_duty_hours_for_bonus * 60;
+
+$overtime_cap_hours = 15;
+$overtime_cap_minutes = $overtime_cap_hours * 60;
+
+$sales_bonus_threshold = 300;
 $sales_bonus_amount = 800000;
 
 $duty_21_hour_bonus = 1000000;
@@ -75,17 +81,13 @@ $stmt = $conn->prepare("
     GROUP BY e.id
 ");
 if (!$stmt) {
-    // --- KODE DIAGNOSTIK SEMENTARA ---
     // error_log("Error preparing payslip summary statement: " . $conn->error);
-    // die("Fatal Error: Gagal menyiapkan query slip gaji. MySQL Error: " . $conn->error);
-    // --- AKHIR KODE DIAGNOSTIK SEMENTARA ---
 }
-$stmt->bind_param("i", $user['id']); // Ini baris 75
+$stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $employee_data_summary = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-// Jika data karyawan tidak ditemukan (harusnya tidak terjadi untuk user yang login aktif)
 if (!$employee_data_summary) {
     $employee_data_summary = [
         'id' => $user['id'],
@@ -108,7 +110,6 @@ $total_paket_snack_summary = $employee_data_summary['total_paket_snack'];
 $total_masak_paket_summary = $employee_data_summary['total_masak_paket'];
 $total_masak_snack_summary = $employee_data_summary['total_masak_snack'];
 
-// Inisialisasi variabel lembur ke 0
 $overtime_minutes_summary = 0;
 $overtime_hours_display_summary = 0;
 $overtime_remaining_minutes_summary = 0;
@@ -117,7 +118,7 @@ $total_bonus_lembur_summary = 0;
 
 // Perhitungan Gaji Pokok
 $gaji_pokok_summary = 0;
-if ($total_duty_minutes_summary > 0 && isset($base_salaries[$employee_role_summary])) {
+if ($total_duty_minutes_summary >= $min_duty_minutes_for_base_salary && isset($base_salaries[$employee_role_summary])) {
     $gaji_pokok_summary = $base_salaries[$employee_role_summary];
 }
 
@@ -129,7 +130,9 @@ if ($total_duty_minutes_summary >= $min_duty_minutes_for_bonus) {
 
 // Perhitungan Jam Lembur dan Bonus Lembur
 if ($total_duty_minutes_summary > $min_duty_minutes_for_bonus) {
-    $overtime_minutes_summary = $total_duty_minutes_summary - $min_duty_minutes_for_bonus;
+    $overtime_minutes_raw_summary = $total_duty_minutes_summary - $min_duty_minutes_for_bonus;
+    $overtime_minutes_summary = min($overtime_minutes_raw_summary, $overtime_cap_minutes);
+    
     $overtime_hours_display_summary = floor($overtime_minutes_summary / 60);
     $overtime_remaining_minutes_summary = $overtime_minutes_summary % 60;
 
@@ -140,17 +143,17 @@ if ($total_duty_minutes_summary > $min_duty_minutes_for_bonus) {
 }
 
 // Perhitungan Bonus Penjualan
-$total_penjualan_paket_summary = $total_paket_makan_minum_warga_summary + $total_paket_makan_minum_instansi_summary + $total_paket_snack_summary + $total_masak_paket_summary + $total_masak_snack_summary;
+$total_penjualan_paket_summary = $total_paket_makan_minum_warga_summary + $total_paket_makan_minum_instansi_summary + $total_paket_snack_summary;
 $bonus_penjualan_summary = 0;
 if ($total_penjualan_paket_summary >= $sales_bonus_threshold) {
-    $bonus_penjualan_summary = $sales_bonus_amount; // PERBAIKAN DI SINI
+    $bonus_penjualan_summary = $sales_bonus_amount;
 }
+
+// Perhitungan Total Gaji
+$total_gajian_summary = $gaji_pokok_summary + $bonus_21_jam_summary + $total_bonus_lembur_summary + $bonus_penjualan_summary;
 
 // Hitung Total Nominal Bonus
 $total_nominal_bonus_summary = $bonus_21_jam_summary + $total_bonus_lembur_summary + $bonus_penjualan_summary;
-
-// Hitung Total Gaji
-$total_gajian_summary = $gaji_pokok_summary + $total_nominal_bonus_summary;
 
 // Fungsi format mata uang
 function formatRupiah($amount) {
@@ -239,7 +242,7 @@ function formatRupiah($amount) {
             letter-spacing: -0.025em;
         }
         .summary-item.total-gaji .value {
-            color: var(--success-color); /* Green for total salary */
+            color: var(--success-color);
             font-size: 1.8rem;
         }
     </style>
@@ -264,7 +267,7 @@ function formatRupiah($amount) {
                     <div class="value"><?= formatDuration($total_duty_minutes_summary) ?></div>
                 </div>
                 <div class="summary-item">
-                    <div class="label">Total Penjualan & Masak</div>
+                    <div class="label">Total Penjualan</div>
                     <div class="value"><?= $total_penjualan_paket_summary ?> Paket</div>
                 </div>
                 <div class="summary-item">

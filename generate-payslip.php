@@ -6,22 +6,18 @@ if (!isLoggedIn()) {
     exit;
 }
 
-$user = getCurrentUser(); // Pengguna yang sedang login
+$user = getCurrentUser();
 
-// Cek peran pengguna: Direktur, Wakil Direktur, Manager bisa melihat slip siapa saja.
 $is_admin_or_manager = hasRole(['direktur', 'wakil_direktur', 'manager']);
 
 $employee_id_to_view = 0;
 
 if ($is_admin_or_manager) {
-    // Jika admin/manager, ambil employee_id dari GET parameter
     $employee_id_to_view = (int)($_GET['employee_id'] ?? 0);
 } else {
-    // Jika bukan admin/manager, hanya izinkan melihat slip gaji sendiri
     $employee_id_to_view = $user['id'];
-    // Jika ada employee_id di GET tapi bukan ID sendiri, arahkan kembali
     if (isset($_GET['employee_id']) && (int)$_GET['employee_id'] !== $user['id']) {
-        header('Location: my-payslip.php'); // Arahkan ke halaman slip gaji sendiri
+        header('Location: my-payslip.php');
         exit;
     }
 }
@@ -50,15 +46,20 @@ $overtime_hourly_bonus = [
     'magang' => 15000,
 ];
 
-$min_duty_hours_for_bonus = 21; // 21 jam untuk bonus jam duty
-$min_duty_minutes_for_bonus = $min_duty_hours_for_bonus * 60; // Konversi ke menit
+$min_duty_hours_for_base_salary = 5;
+$min_duty_minutes_for_base_salary = $min_duty_hours_for_base_salary * 60;
 
-$sales_bonus_threshold = 300; // 300 paket untuk bonus penjualan
+$min_duty_hours_for_bonus = 21;
+$min_duty_minutes_for_bonus = $min_duty_hours_for_bonus * 60;
+
+$overtime_cap_hours = 15;
+$overtime_cap_minutes = $overtime_cap_hours * 60;
+
+$sales_bonus_threshold = 300;
 $sales_bonus_amount = 800000;
 
 $duty_21_hour_bonus = 1000000;
 
-// Ambil data anggota spesifik menggunakan subquery untuk agregasi
 $stmt = $conn->prepare("
     SELECT e.id, e.name, e.role,
            COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
@@ -107,7 +108,6 @@ $total_paket_snack = $employee_data['total_paket_snack'];
 $total_masak_paket = $employee_data['total_masak_paket'];
 $total_masak_snack = $employee_data['total_masak_snack'];
 
-// Inisialisasi variabel lembur ke 0
 $overtime_minutes = 0;
 $overtime_hours_display = 0;
 $overtime_remaining_minutes = 0;
@@ -116,7 +116,7 @@ $total_bonus_lembur = 0;
 
 // Perhitungan Gaji Pokok
 $gaji_pokok = 0;
-if ($total_duty_minutes > 0 && isset($base_salaries[$employee_role])) {
+if ($total_duty_minutes >= $min_duty_minutes_for_base_salary && isset($base_salaries[$employee_role])) {
     $gaji_pokok = $base_salaries[$employee_role];
 }
 
@@ -128,7 +128,9 @@ if ($total_duty_minutes >= $min_duty_minutes_for_bonus) {
 
 // Perhitungan Jam Lembur dan Bonus Lembur
 if ($total_duty_minutes > $min_duty_minutes_for_bonus) {
-    $overtime_minutes = $total_duty_minutes - $min_duty_minutes_for_bonus;
+    $overtime_minutes_raw = $total_duty_minutes - $min_duty_minutes_for_bonus;
+    $overtime_minutes = min($overtime_minutes_raw, $overtime_cap_minutes);
+    
     $overtime_hours_display = floor($overtime_minutes / 60);
     $overtime_remaining_minutes = $overtime_minutes % 60;
 
@@ -139,7 +141,7 @@ if ($total_duty_minutes > $min_duty_minutes_for_bonus) {
 }
 
 // Perhitungan Bonus Penjualan
-$total_penjualan_paket = $total_paket_makan_minum_warga + $total_paket_makan_minum_instansi + $total_paket_snack + $total_masak_paket + $total_masak_snack;
+$total_penjualan_paket = $total_paket_makan_minum_warga + $total_paket_makan_minum_instansi + $total_paket_snack;
 $bonus_penjualan = 0;
 if ($total_penjualan_paket >= $sales_bonus_threshold) {
     $bonus_penjualan = $sales_bonus_amount;
@@ -189,49 +191,48 @@ function formatRupiah($amount) {
             margin-bottom: 30px;
             border-bottom: 2px solid #333;
             padding-bottom: 20px;
-            position: relative; /* Diperlukan untuk penempatan logo absolut */
-            display: flex; /* Menggunakan flexbox untuk layout yang lebih baik */
-            align-items: center; /* Pusatkan item secara vertikal */
-            justify-content: center; /* Pusatkan konten utama */
-            padding-left: 120px; /* Ruang untuk logo kiri */
-            padding-right: 120px; /* Ruang untuk logo kanan */
-            box-sizing: border-box; /* Pastikan padding dihitung dalam lebar */
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-left: 120px;
+            padding-right: 120px;
+            box-sizing: border-box;
         }
         .header h1 {
             margin: 0;
             font-size: 2em;
             color: #3b82f6;
-            flex-shrink: 0; /* Pastikan judul tidak menyusut */
+            flex-shrink: 0;
         }
         .header p {
             margin: 5px 0 0;
             font-size: 0.9em;
             color: #666;
-            flex-shrink: 0; /* Pastikan paragraf tidak menyusut */
+            flex-shrink: 0;
         }
         .header-content-center {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            flex-grow: 1; /* Biarkan konten tengah mengambil ruang yang tersedia */
+            flex-grow: 1;
         }
         .logo-header {
             position: absolute;
-            top: 50%; /* Pusatkan secara vertikal */
-            transform: translateY(-50%); /* Sesuaikan posisi vertikal */
-            width: 120px; /* Ukuran logo yang lebih besar */
+            top: 50%;
+            transform: translateY(-50%);
+            width: 120px;
             height: auto;
             object-fit: contain;
-            z-index: 10; /* Pastikan logo di atas elemen lain jika bertumpuk */
+            z-index: 10;
         }
         .logo-left {
-            left: 0px; /* Posisikan di paling kiri */
+            left: 0px;
         }
         .logo-right {
-            right: 0px; /* Posisikan di paling kanan */
+            right: 0px;
         }
-        /* Clearfix tidak lagi diperlukan dengan flexbox di .header, tapi tidak ada salahnya jika ada */
         .section-title {
             font-size: 1.2em;
             font-weight: bold;
@@ -371,7 +372,7 @@ function formatRupiah($amount) {
         <div class="section-title">Ringkasan Kinerja</div>
         <div class="info-grid">
             <div class="info-item"><span>Total Jam Duty:</span> <?= formatDuration($total_duty_minutes) ?></div>
-            <div class="info-item"><span>Total Paket Terjual & Dimasak:</span> <?= $total_penjualan_paket ?> Paket</div>
+            <div class="info-item"><span>Total Penjualan:</span> <?= $total_penjualan_paket ?> Paket</div>
             <div class="info-item"><span>Jam Lembur:</span> <?= $overtime_hours_display ?>j <?= $overtime_remaining_minutes ?>m</div>
             <div class="info-item"><span>Total Nominal Bonus:</span> <?= formatRupiah($total_nominal_bonus) ?></div>
             <div class="info-item"><span>Total Penjualan M&M Warga:</span> <?= $total_paket_makan_minum_warga ?></div>
