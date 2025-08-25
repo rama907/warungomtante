@@ -44,22 +44,11 @@ function getCurrentUser() {
     return $stmt->get_result()->fetch_assoc();
 }
 
-// Function to get latest warning for a user
-function getLatestWarning($employee_id) {
-    global $conn;
-    $stmt = $conn->prepare("SELECT type, reason, issued_at FROM warning_letters WHERE employee_id = ? ORDER BY issued_at DESC LIMIT 1");
-    $stmt->bind_param("i", $employee_id);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    return $result;
-}
-
 // Function to format duration
 function formatDuration($minutes) {
     $hours = floor($minutes / 60);
     $mins = $minutes % 60;
-    return "{$hours}j {$mins}m";
+    return $hours . 'j ' . $mins . 'm';
 }
 
 // Function to get role display name
@@ -75,26 +64,6 @@ function getRoleDisplayName($role) {
     return $roles[$role] ?? ucfirst($role);
 }
 
-// Fungsi untuk menambahkan notifikasi
-function addNotification($employee_id, $type, $message, $link = null) {
-    global $conn;
-    $stmt = $conn->prepare("INSERT INTO notifications (employee_id, type, message, link) VALUES (?, ?, ?, ?)");
-    $stmt->bind_param("isss", $employee_id, $type, $message, $link);
-    $stmt->execute();
-    $stmt->close();
-}
-
-// Fungsi untuk mendapatkan jumlah notifikasi yang belum dibaca
-function getUnreadNotificationCount($employee_id) {
-    global $conn;
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM notifications WHERE employee_id = ? AND is_read = FALSE");
-    $stmt->bind_param("i", $employee_id);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    return $result['count'];
-}
-
 // Fungsi untuk mengirim notifikasi ke Discord
 function sendDiscordNotification($data, $type = 'info') {
     // URL Webhook Discord Anda
@@ -103,12 +72,12 @@ function sendDiscordNotification($data, $type = 'info') {
 
     // Webhook kedua (KHUSUS untuk pengajuan dan pembaruan status permohonan)
     // GANTI DENGAN URL WEBHOOK KEDUA ANDA DI SINI
-    $request_webhook_url = 'https://discord.com/api/webhooks/1402014726195511548/IO3d24hho1AyxSLnTaYpCYk9Q5j_IFpt9HLPMLzA5d4CJBeKdVPJIo0H0F65cFh_aSwV'; // <--- PASTIKAN INI DIGANTI!
+    $request_webhook_url = 'https://discord.com/api/webhooks/1402014726195511548/IO3d24hho1AyxSLnTaYpCYk9Q5j_IFpt9HLPMLzA5d4CJBeKdVPjIo0H0F65cFh_aSwV'; // <--- PASTIKAN INI DIGANTI!
 
     $webhooks_to_send = [$general_webhook_url]; // Default: selalu kirim ke webhook umum
 
     // Jika tipe notifikasi adalah pengajuan cuti/resign, atau pembaruan status permohonan, tambahkan webhook kedua
-    if (in_array($type, ['leave_request_submitted', 'resignation_request_submitted', 'manual_duty_request_submitted', 'request_status_update', 'warning_issued', 'employee_deactivated'])) {
+    if (in_array($type, ['leave_request_submitted', 'resignation_request_submitted', 'manual_duty_request_submitted', 'request_status_update'])) {
         // Pastikan URL webhook kedua telah diatur dan bukan placeholder
         if (!empty($request_webhook_url) && $request_webhook_url !== 'https://discord.com/api/webhooks/YOUR_SECOND_WEBHOOK_URL_HERE') {
             $webhooks_to_send[] = $request_webhook_url;
@@ -131,9 +100,7 @@ function sendDiscordNotification($data, $type = 'info') {
         'sale_deleted' => 15548997, // Merah terang (contoh: Penghapusan penjualan)
         'salary_paid_single' => 3066993, // Hijau untuk gaji dibayar
         'salary_unpaid_single' => 16776960, // Kuning untuk gaji dibatalkan
-        'salary_unpaid_all' => 16750899, // Orange/Merah untuk reset semua gaji
-        'warning_issued' => 16750899, // Oranye untuk surat peringatan
-        'employee_deactivated' => 15158332 // Merah untuk PHK
+        'salary_unpaid_all' => 16750899 // Orange/Merah untuk reset semua gaji
     ];
     $color = $colors[$type] ?? 0; // Ambil warna berdasarkan tipe, default hitam
 
@@ -264,7 +231,6 @@ function sendDiscordNotification($data, $type = 'info') {
             } elseif (($data['action_type'] ?? '') === 'deactivate_employee') {
                 $embed['title'] = "⛔ Anggota Dinonaktifkan!";
                 $embed['description'] = "Anggota **{$target_name}** telah dinonaktifkan oleh **{$admin_name}**.";
-                $embed['color'] = $colors['employee_deactivated'];
                 $embed['fields'] = [
                     ['name' => 'Anggota', 'value' => $target_name, 'inline' => true],
                     ['name' => 'Status', 'value' => '🔴 Tidak Aktif', 'inline' => true],
@@ -407,28 +373,6 @@ function sendDiscordNotification($data, $type = 'info') {
                 ['name' => 'Durasi (estimasi)', 'value' => $duration_display, 'inline' => true],
                 ['name' => 'Saran', 'value' => "Mohon informasikan anggota tersebut untuk mengajukan `Input Jam Manual` jika periode ini perlu dicatat ulang.", 'inline' => false]
             ];
-            break;
-
-        case 'warning_issued':
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $issuer_name = htmlspecialchars($data['issuer_name'] ?? 'N/A');
-            $warning_type = htmlspecialchars($data['warning_type'] ?? 'N/A');
-            $reason = htmlspecialchars($data['reason'] ?? 'Tidak ada alasan.');
-
-            $embed['title'] = "⚠️ Surat Peringatan Dikeluarkan!";
-            $embed['description'] = "Surat peringatan **{$warning_type}** telah dikeluarkan untuk **{$employee_name}** oleh **{$issuer_name}**.";
-            $embed['color'] = $colors['warning_issued'];
-            $embed['fields'] = [
-                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
-                ['name' => 'Tipe Peringatan', 'value' => $warning_type, 'inline' => true],
-                ['name' => 'Dikeluarkan Oleh', 'value' => $issuer_name, 'inline' => true],
-                ['name' => 'Alasan', 'value' => $reason],
-            ];
-            if ($warning_type === 'PHK') {
-                $embed['title'] = "⛔ Peringatan: Anggota Dipecat!";
-                $embed['description'] = "Anggota **{$employee_name}** telah diberhentikan (PHK) oleh **{$issuer_name}**.";
-                $embed['color'] = $colors['employee_deactivated'];
-            }
             break;
 
         default:

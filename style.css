@@ -189,39 +189,6 @@ body {
     font-size: 1rem;
 }
 
-/* Notifikasi Bell */
-.notification-bell {
-    position: relative;
-    color: white;
-    font-size: 1.25rem;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-md);
-    transition: all 0.3s ease;
-}
-.notification-bell:hover {
-    background: rgba(255, 255, 255, 0.1);
-}
-.notification-bell .badge {
-    position: absolute;
-    top: 0;
-    right: 0;
-    min-width: 18px;
-    height: 18px;
-    line-height: 18px;
-    font-size: 0.7rem;
-    font-weight: bold;
-    text-align: center;
-    background-color: var(--danger-color);
-    color: white;
-    border-radius: 50%;
-    padding: 0 4px;
-    transform: translate(25%, -25%);
-}
-
 /* Enhanced Sidebar - FIXED Z-INDEX */
 .sidebar {
     position: fixed;
@@ -1199,29 +1166,6 @@ body {
     color: var(--danger-color);
 }
 
-/* Warning Badges */
-.warning-badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    border-radius: var(--radius-md);
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-}
-
-.badge-sp1 { background-color: var(--warning-light); color: var(--warning-color); }
-.badge-sp2 { background-color: #fef3c7; color: #f59e0b; }
-.badge-sp3 { background-color: #fee2e2; color: #ef4444; }
-.badge-phk { background-color: #fee2e2; color: #ef4444; }
-.warning-reason {
-    font-size: 0.8rem;
-    font-style: italic;
-    opacity: 0.8;
-}
-
 /* Enhanced Activities */
 .recent-activities {
     background: var(--bg-card);
@@ -1815,25 +1759,25 @@ body {
 
 @keyframes slideInRight {
     from {
-        opacity: 0;
         transform: translateX(100%);
+        opacity: 0;
     }
 
     to {
-        opacity: 1;
         transform: translateX(0);
+        opacity: 1;
     }
 }
 
 @keyframes slideOutRight {
     from {
-        opacity: 1;
         transform: translateX(0);
+        opacity: 1;
     }
 
     to {
-        opacity: 0;
         transform: translateX(100%);
+        opacity: 0;
     }
 }
 
@@ -2687,6 +2631,11 @@ body {
     left: 100%;
 }
 
+.btn-login:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 35px rgba(59, 130, 246, 0.4);
+}
+
 .btn-login:disabled {
     opacity: 0.7;
     cursor: not-allowed;
@@ -2936,73 +2885,50 @@ body {
 }
 
 @media (max-width: 480px) {
-    .header-actions .notification-bell {
-        margin-right: -10px;
-    }
-    .header-content {
-        padding: 0 var(--spacing-xs);
-    }
-
-    .logo {
-        gap: 4px;
-    }
-
-    .logo-text {
-        font-size: 0.625rem;
-    }
-
-    .user-menu {
-        gap: 4px;
-        padding: 4px 8px;
-    }
-
-    .main-content {
+    .login-header {
         padding: var(--spacing-sm);
     }
 
-    .sidebar {
-        width: 100vw;
-        max-width: 320px;
-    }
-
-    /* Even larger touch targets for small screens */
-    .nav-item {
-        padding: var(--spacing-xl);
-        min-height: 64px;
-        font-size: 1.125rem;
-    }
-
-    .nav-icon {
-        font-size: 2rem;
-        width: 48px;
-    }
-
-    .summary-card {
+    .logo-large {
         flex-direction: column;
         text-align: center;
+        gap: var(--spacing-sm);
     }
 
-    .summary-icon {
-        margin: 0 auto var(--spacing-md);
-    }
-
-    .stat-card-requests {
+    .login-header-content {
         flex-direction: column;
-        text-align: center;
+        gap: var(--spacing-md);
     }
 
-    .stat-icon-requests {
-        margin: 0 auto var(--spacing-md);
-    }
-
-    .all-requests-tabs {
-        flex-direction: column;
-        gap: var(--spacing-xs);
-    }
-
-    .tab-button {
+    .login-main {
         padding: var(--spacing-md);
-        text-align: center;
+    }
+
+    .login-card {
+        padding: var(--spacing-lg);
+    }
+
+    .login-icon {
+        width: 60px;
+        height: 60px;
+        font-size: 1.5rem;
+    }
+
+    .login-card-header h2 {
+        font-size: 1.25rem;
+    }
+
+    .form-select-login,
+    .form-input-login {
+        padding: var(--spacing-md) var(--spacing-lg);
+    }
+
+    .btn-login {
+        padding: var(--spacing-md) var(--spacing-lg);
+    }
+
+    .features-preview {
+        padding: var(--spacing-lg);
     }
 }
 

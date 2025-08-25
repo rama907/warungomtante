@@ -1,10 +1,3 @@
-<?php
-// Ambil jumlah notifikasi yang belum dibaca
-$unread_notifications_count = 0;
-if (isset($_SESSION['user_id'])) {
-    $unread_notifications_count = getUnreadNotificationCount($_SESSION['user_id']);
-}
-?>
 <header class="header">
     <div class="header-content">
         <div class="header-left">
@@ -17,13 +10,6 @@ if (isset($_SESSION['user_id'])) {
             </div>
         </div>
         <div class="header-actions">
-            <a href="my-notifications.php" class="notification-bell" aria-label="Notifikasi">
-                <span class="bell-icon">🔔</span>
-                <?php if ($unread_notifications_count > 0): ?>
-                    <span class="badge"><?= $unread_notifications_count ?></span>
-                <?php endif; ?>
-            </a>
-            
             <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle Theme">
                 <span class="theme-icon">🌙</span>
             </button>

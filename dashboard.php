@@ -11,9 +11,6 @@ $user = getCurrentUser();
 // Ambil jumlah permohonan pending untuk indikator sidebar
 $pending_requests_count = getPendingRequestCount();
 
-// Cek surat peringatan terbaru
-$latest_warning = getLatestWarning($user['id']);
-
 // Handle duty actions
 if ($_POST['action'] ?? '' === 'on_duty') {
     if (!$user['is_on_duty']) {
@@ -210,12 +207,6 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                     <div class="user-info">
                         <h2><?= htmlspecialchars($user['name']) ?></h2>
                         <p class="user-role"><?= getRoleDisplayName($user['role']) ?></p>
-                        <?php if ($latest_warning): ?>
-                            <span class="warning-badge badge-<?= strtolower($latest_warning['type']) ?>">
-                                <?= $latest_warning['type'] ?>
-                            </span>
-                            <p class="warning-reason">Terakhir: <?= htmlspecialchars($latest_warning['reason']) ?></p>
-                        <?php endif; ?>
                         <div class="duty-status">
                             <span class="status-indicator <?= $user['is_on_duty'] ? 'on-duty' : 'off-duty' ?>"></span>
                             <span class="status-text"><?= $user['is_on_duty'] ? 'On Duty' : 'Off Duty' ?></span>
