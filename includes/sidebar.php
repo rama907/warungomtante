@@ -121,6 +121,10 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
                 <span class="absent-warning-indicator">!</span>
             <?php endif; ?>
         </a>
+        <a href="my-warnings.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-warnings.php' ? 'active' : '' ?>">
+            <span class="nav-icon">❗</span>
+            <span class="nav-text">Surat Peringatan</span>
+        </a>
         
         <div class="nav-divider"></div>
         <a href="all-requests.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-requests.php' ? 'active' : '' ?>">
@@ -164,6 +168,10 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
             <?php if (isset($pending_requests_count) && $pending_requests_count > 0): ?>
                 <span class="pending-indicator"><?= $pending_requests_count ?></span>
             <?php endif; ?>
+        </a>
+        <a href="warning-letters.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'warning-letters.php' ? 'active' : '' ?>">
+            <span class="nav-icon">📝</span>
+            <span class="nav-text">Surat Peringatan</span>
         </a>
         <a href="admin.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'admin.php' ? 'active' : '' ?>">
             <span class="nav-icon">⚙️</span>

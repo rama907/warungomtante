@@ -142,6 +142,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 $message_type = 'success'; // Tetap 'success' (hijau)
                             }
 
+                            // Tambahkan notifikasi ke database
+                            addNotification(
+                                $request_data['employee_id'],
+                                ($action_type === 'approved' ? 'request_approved' : 'request_rejected'),
+                                "Permohonan " . htmlspecialchars(ucfirst(str_replace('_', ' ', $table))) . " Anda telah di" . ($action_type === 'approved' ? "setujui" : "tolak") . " oleh " . htmlspecialchars($user['name']) . ".",
+                                "my-notifications.php"
+                            );
+
                             sendDiscordNotification([
                                 'employee_name' => $request_data['employee_name'],
                                 'request_type' => ($table === 'leave_requests' ? 'Cuti' : ($table === 'resignation_requests' ? 'Resign' : 'Input Jam Manual')),
@@ -165,7 +173,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
     }
-}
 
 
 // --- Pengambilan Data Permohonan untuk Tampilan ---
