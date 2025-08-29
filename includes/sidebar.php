@@ -114,6 +114,10 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
             <span class="nav-icon">📄</span>
             <span class="nav-text">Slip Gaji Saya</span>
         </a>
+        <a href="my-warnings.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-warnings.php' ? 'active' : '' ?>">
+            <span class="nav-icon">⚠️</span>
+            <span class="nav-text">Surat Peringatan Saya</span>
+        </a>
         <a href="my-attendance.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-attendance.php' ? 'active' : '' ?>">
             <span class="nav-icon">📅</span>
             <span class="nav-text">Absensi Saya</span>
@@ -127,9 +131,13 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
             <span class="nav-icon">📋</span>
             <span class="nav-text">Semua Permohonan</span>
         </a>
-        <a href="organization-chart.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'organization-chart.php' ? 'active' : '' ?>">
-            <span class="nav-icon">🏛️</span>
-            <span class="nav-text">Struktur Perusahaan</span>
+        <a href="all-warnings.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-warnings.php' ? 'active' : '' ?>">
+            <span class="nav-icon">📜</span>
+            <span class="nav-text">Semua Surat Peringatan</span>
+        </a>
+        <a href="suggestions.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'suggestions.php' ? 'active' : '' ?>">
+            <span class="nav-icon">🚨</span>
+            <span class="nav-text">Saran & Kritik (Anonim)</span>
         </a>
         
         <?php if (hasRole(['direktur', 'wakil_direktur', 'manager'])): ?>

@@ -34,7 +34,7 @@ $overtime_hourly_bonus = [
     'magang' => 15000,
 ];
 
-$min_duty_hours_for_base_salary = 5;
+$min_duty_hours_for_base_salary = 8; // Perubahan: Minimal jam kerja untuk mendapatkan gaji pokok
 $min_duty_minutes_for_base_salary = $min_duty_hours_for_base_salary * 60;
 
 $min_duty_hours_for_bonus = 21;

@@ -16,6 +16,54 @@ $selected_employee_id = null;
 $selected_employee_name = 'Pilih Anggota';
 $warning_history = [];
 
+// --- Logika Penghapusan Otomatis (Surat Peringatan Lebih dari 1 bulan) ---
+$one_month_ago = date('Y-m-d H:i:s', strtotime('-1 month'));
+$stmt_auto_delete = $conn->prepare("DELETE FROM warning_letters WHERE issued_at < ?");
+if ($stmt_auto_delete) {
+    $stmt_auto_delete->bind_param("s", $one_month_ago);
+    $stmt_auto_delete->execute();
+    if ($stmt_auto_delete->affected_rows > 0) {
+        // Notifikasi Discord bisa ditambahkan di sini jika diperlukan
+    }
+    $stmt_auto_delete->close();
+}
+
+// --- Logika Penghapusan Manual per Entri ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_sp') {
+    $sp_id_to_delete = (int)($_POST['sp_id'] ?? 0);
+    $employee_id_of_sp = (int)($_POST['employee_id'] ?? 0);
+
+    if ($sp_id_to_delete <= 0) {
+        $error = "ID surat peringatan tidak valid!";
+    } else {
+        try {
+            $stmt = $conn->prepare("DELETE FROM warning_letters WHERE id = ? AND employee_id = ?");
+            if (!$stmt) {
+                throw new Exception("Gagal menyiapkan query: " . $conn->error);
+            }
+            $stmt->bind_param("ii", $sp_id_to_delete, $employee_id_of_sp);
+
+            if ($stmt->execute()) {
+                $success = "Surat peringatan berhasil dihapus.";
+                 // Kirim notifikasi Discord
+                $employee_name = getEmployeeNameById($employee_id_of_sp);
+                sendDiscordNotification([
+                    'employee_name' => $employee_name,
+                    'admin_name' => $user['name'],
+                    'sp_id' => $sp_id_to_delete
+                ], 'warning_letter_deleted');
+
+            } else {
+                throw new Exception("Gagal menghapus surat peringatan: " . $stmt->error);
+            }
+            $stmt->close();
+        } catch (Exception $e) {
+            $error = "Terjadi kesalahan: " . $e->getMessage();
+        }
+    }
+}
+
+
 // Handle form submission for issuing a new warning letter
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'issue_sp') {
     $employee_id = (int)($_POST['employee_id'] ?? 0);
@@ -71,9 +119,9 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
     }
 
     $stmt_history = $conn->prepare("
-        SELECT wl.*, e.name as issued_by_name
+        SELECT wl.*, issued_by.name as issued_by_name
         FROM warning_letters wl
-        LEFT JOIN employees e ON wl.issued_by_employee_id = e.id
+        LEFT JOIN employees issued_by ON wl.issued_by_employee_id = issued_by.id
         WHERE wl.employee_id = ?
         ORDER BY wl.issued_at DESC
     ");
@@ -255,6 +303,12 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                                             <strong>Alasan:</strong>
                                             <p><?= htmlspecialchars($sp['reason']) ?></p>
                                         </div>
+                                        <form method="POST" onsubmit="return confirm('Yakin ingin menghapus surat peringatan ini? Tindakan ini tidak dapat dibatalkan.')">
+                                            <input type="hidden" name="action" value="delete_sp">
+                                            <input type="hidden" name="sp_id" value="<?= $sp['id'] ?>">
+                                            <input type="hidden" name="employee_id" value="<?= $selected_employee_id ?>">
+                                            <button type="submit" class="btn btn-danger btn-sm" style="margin-top: var(--spacing-md);">Hapus SP</button>
+                                        </form>
                                     </div>
                                 <?php endforeach; ?>
                             </div>

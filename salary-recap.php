@@ -29,7 +29,7 @@ $overtime_hourly_bonus = [
     'magang' => 15000,
 ];
 
-$min_duty_hours_for_base_salary = 5;
+$min_duty_hours_for_base_salary = 8; // Perubahan: Minimal jam kerja untuk mendapatkan gaji pokok
 $min_duty_minutes_for_base_salary = $min_duty_hours_for_base_salary * 60;
 
 $min_duty_hours_for_bonus = 21;
@@ -262,7 +262,6 @@ foreach ($employees_raw_data as $employee) {
         }
     }
     
-    // Perubahan: Bonus penjualan didapat jika penjualan paket mencapai 400
     $total_penjualan_paket = $total_paket_makan_minum_warga + $total_paket_makan_minum_instansi + $total_paket_snack;
     $bonus_penjualan = 0;
     if (in_array($employee_role, ['karyawan', 'magang'])) {
@@ -275,19 +274,18 @@ foreach ($employees_raw_data as $employee) {
     $performance_indicator_text = '';
 
     if (in_array($employee_role, ['karyawan', 'magang'])) {
-        if ($total_penjualan_paket < $performance_cut_off_threshold) {
+        $performance_indicator = $total_penjualan_paket;
+        if ($performance_indicator < $performance_cut_off_threshold) {
             $bonus_21_jam *= 0.5;
             $total_bonus_lembur *= 0.5;
             $is_bonus_cut = true;
-            $performance_indicator_text = $total_penjualan_paket . ' Paket';
         }
     } elseif ($employee_role === 'chef') {
-        $total_masak_packages = $total_masak_paket + $total_masak_snack;
-        if ($total_masak_packages < $performance_cut_off_threshold) {
+        $performance_indicator = $total_masak_paket + $total_masak_snack;
+        if ($performance_indicator < $performance_cut_off_threshold) {
             $bonus_21_jam *= 0.5;
             $total_bonus_lembur *= 0.5;
             $is_bonus_cut = true;
-            $performance_indicator_text = $total_masak_packages . ' Masak';
         }
     }
     
