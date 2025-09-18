@@ -52,7 +52,6 @@ $error_message = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $action = $_POST['action'];
     $employee_id = (int)($_POST['employee_id'] ?? 0);
-    $employee_name = getEmployeeNameById($employee_id);
 
     $conn->begin_transaction();
     try {
@@ -156,16 +155,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
     header("Location: salary-recap.php?msg=" . urlencode($success_message ?? $error_message) . "&type=" . urlencode(isset($success_message) ? 'success' : 'error'));
     exit;
-}
-
-function getEmployeeNameById($id) {
-    global $conn;
-    $stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
-    $stmt->bind_param("i", $id);
-    $stmt->execute();
-    $result = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
-    return $result['name'] ?? 'Tidak Dikenal';
 }
 
 if (isset($_GET['msg']) && isset($_GET['type'])) {

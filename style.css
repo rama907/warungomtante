@@ -3171,3 +3171,94 @@ body {
         box-shadow: 0 0 0 0 rgba(244, 67, 54, 0);
     }
 }
+
+/* Gaya baru untuk notifikasi surat peringatan */
+.warning-indicator {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 20px;
+    height: 20px;
+    background-color: var(--danger-color);
+    color: white;
+    font-weight: 700;
+    font-size: 0.8rem;
+    border-radius: 50%;
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Mengatur posisi notifikasi pada nav-item */
+.sidebar .nav-item {
+    position: relative;
+    /* Pastikan ini ada agar notifikasi berada di dalam item */
+}
+
+/* Gaya untuk baris tabel yang durasi kerjanya panjang */
+.long-duty-row {
+    background-color: var(--warning-light) !important;
+}
+.long-duty-alert {
+    font-weight: bold;
+    color: var(--warning-color);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Gaya untuk tanda seru pada nama anggota di rekap absensi */
+.long-absent-alert {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 20px;
+    height: 20px;
+    background-color: var(--danger-color);
+    color: white;
+    font-weight: 700;
+    font-size: 0.8rem;
+    border-radius: 50%;
+    margin-left: var(--spacing-sm);
+}
+
+/* Mengatur agar nama anggota dan tanda seru bisa sejajar */
+.attendance-table .employee-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 5px; /* Jarak antara nama dan tanda seru */
+}
+
+.long-absent-alert {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 20px;
+    height: 20px;
+    background-color: var(--danger-color);
+    color: white;
+    font-weight: 700;
+    font-size: 0.8rem;
+    border-radius: 50%;
+    margin-left: 5px;
+}
+
+/* Gaya baru untuk garis merah di samping nama anggota */
+.long-absent-warning {
+    border-left: 3px solid var(--danger-color);
+    padding-left: calc(var(--spacing-sm) - 3px);
+}
+
+/* Gaya untuk baris tabel yang durasi kerjanya panjang */
+.long-duty-row {
+    background-color: var(--warning-light) !important;
+}
+.long-duty-alert {
+    font-weight: bold;
+    color: var(--warning-color);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}

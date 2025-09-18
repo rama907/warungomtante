@@ -1,14 +1,16 @@
 <?php
 require_once 'config.php';
 
-// Pastikan pengguna sudah login dan memiliki peran yang sesuai
-if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur', 'manager'])) {
-    header('Location: dashboard.php');
+// Cek hanya apakah pengguna sudah login, tanpa memeriksa peran.
+if (!isLoggedIn()) {
+    header('Location: index.php');
     exit;
 }
 
-$user = getCurrentUser();
-$pending_requests_count = getPendingRequestCount(); // Untuk sidebar
+$user = getCurrentUser(); // Untuk mendapatkan data pengguna yang sedang login
+
+// Ambil jumlah permohonan pending untuk indikator sidebar
+$pending_requests_count = getPendingRequestCount();
 
 // Mengambil semua surat peringatan dari database
 $warning_letters = [];

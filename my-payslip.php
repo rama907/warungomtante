@@ -264,6 +264,7 @@ function formatRupiah($amount) {
             font-weight: 700;
             color: var(--primary-color);
             letter-spacing: -0.025em;
+            margin: 0;
         }
         .summary-item.total-gaji .value {
             color: var(--success-color);
@@ -284,6 +285,12 @@ function formatRupiah($amount) {
                 </h1>
                 <p>Lihat dan unduh slip gaji pribadi Anda.</p>
             </div>
+            
+            <?php if ($total_duty_minutes_summary < $min_duty_minutes_for_base_salary): ?>
+                <div class="error-message">
+                    <strong>Penting:</strong> Total jam kerja Anda (<?= formatDuration($total_duty_minutes_summary) ?>) belum mencapai minimal 8 jam untuk mendapatkan gaji pokok.
+                </div>
+            <?php endif; ?>
 
             <div class="summary-section">
                 <div class="summary-item">

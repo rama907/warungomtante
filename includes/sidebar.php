@@ -89,6 +89,29 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
             $max_consecutive_absent_sidebar = $current_consecutive_absent_sidebar;
         }
     }
+    
+    // BARU: Hitung jumlah surat peringatan untuk pengguna saat ini
+    $my_warnings_count = 0;
+    $stmt_my_warnings = $conn->prepare("SELECT COUNT(*) as total FROM warning_letters WHERE employee_id = ?");
+    if ($stmt_my_warnings) {
+        $stmt_my_warnings->bind_param("i", $employee_id_sidebar);
+        $stmt_my_warnings->execute();
+        $result_my_warnings = $stmt_my_warnings->get_result();
+        $row_my_warnings = $result_my_warnings->fetch_assoc();
+        $my_warnings_count = $row_my_warnings['total'];
+        $stmt_my_warnings->close();
+    }
+}
+
+// Hitung total surat peringatan untuk notifikasi "Semua Surat Peringatan"
+$all_warnings_count = 0;
+if (isset($conn) && isLoggedIn()) { 
+    $stmt_warnings_count = $conn->query("SELECT COUNT(*) as total FROM warning_letters");
+    if ($stmt_warnings_count) {
+        $result_warnings = $stmt_warnings_count->fetch_assoc();
+        $all_warnings_count = $result_warnings['total'];
+        $stmt_warnings_count->close();
+    }
 }
 ?>
 
@@ -98,10 +121,6 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
             <span class="nav-icon">🏠</span>
             <span class="nav-text">Dashboard</span>
         </a>
-        <a href="activities.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'activities.php' ? 'active' : '' ?>">
-            <span class="nav-icon">📊</span>
-            <span class="nav-text">Aktivitas Saya</span>
-        </a>
         <a href="sales.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'sales.php' ? 'active' : '' ?>">
             <span class="nav-icon">💰</span>
             <span class="nav-text">Data Penjualan</span>
@@ -110,6 +129,10 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
             <span class="nav-icon">⏱️</span>
             <span class="nav-text">Input Manual</span>
         </a>
+        <a href="activities.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'activities.php' ? 'active' : '' ?>">
+            <span class="nav-icon">📊</span>
+            <span class="nav-text">Aktivitas Saya</span>
+        </a>
         <a href="my-payslip.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-payslip.php' ? 'active' : '' ?>">
             <span class="nav-icon">📄</span>
             <span class="nav-text">Slip Gaji Saya</span>
@@ -117,6 +140,9 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
         <a href="my-warnings.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-warnings.php' ? 'active' : '' ?>">
             <span class="nav-icon">⚠️</span>
             <span class="nav-text">Surat Peringatan Saya</span>
+            <?php if (isset($my_warnings_count) && $my_warnings_count > 0): ?>
+                <span class="warning-indicator">!</span>
+            <?php endif; ?>
         </a>
         <a href="my-attendance.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-attendance.php' ? 'active' : '' ?>">
             <span class="nav-icon">📅</span>
@@ -134,6 +160,9 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
         <a href="all-warnings.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-warnings.php' ? 'active' : '' ?>">
             <span class="nav-icon">📜</span>
             <span class="nav-text">Semua Surat Peringatan</span>
+            <?php if (isset($all_warnings_count) && $all_warnings_count > 0): ?>
+                <span class="pending-indicator"><?= $all_warnings_count ?></span>
+            <?php endif; ?>
         </a>
         <a href="suggestions.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'suggestions.php' ? 'active' : '' ?>">
             <span class="nav-icon">🚨</span>
@@ -183,7 +212,7 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
         </a>
         <a href="duty-history-management.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'duty-history-management.php' ? 'active' : '' ?>">
             <span class="nav-icon">⏱️</span>
-            <span class="nav-text">Manajemen Jam Kerja</span>
+            <span class="nav-text">Manajemen Jam Duty</span>
         </a>
         <?php endif; ?>
     </div>

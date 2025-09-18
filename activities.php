@@ -267,6 +267,9 @@ $stmt->close();
                         <h3>Riwayat Aktivitas Anda</h3>
                     </div>
                     <div class="card-content">
+                        <div class="info-message" style="margin-bottom: var(--spacing-xl);">
+                            <strong>💡 Info:</strong> Baris dengan latar belakang kuning mengindikasikan jam kerja per absensi yang melebihi **7 jam**.
+                        </div>
                         <?php if (empty($activities)): ?>
                             <div class="no-data">Belum ada aktivitas. Silakan lakukan 'On Duty' untuk mencatat aktivitas pertama Anda.</div>
                         <?php else: ?>
@@ -284,7 +287,10 @@ $stmt->close();
                                     </thead>
                                     <tbody>
                                         <?php foreach ($activities as $activity): ?>
-                                        <tr>
+                                        <?php
+                                        $is_long_duty = ($activity['duration_minutes'] > 420);
+                                        ?>
+                                        <tr class="<?= $is_long_duty ? 'long-duty-row' : '' ?>">
                                             <td data-label="Tanggal">
                                                 <?= date('d/m/Y', strtotime($activity['duty_start'])) ?>
                                             </td>
@@ -295,7 +301,12 @@ $stmt->close();
                                                 <?= $activity['duty_end'] ? date('H:i', strtotime($activity['duty_end'])) : '-' ?>
                                             </td>
                                             <td data-label="Durasi">
-                                                <?= $activity['duty_end'] ? formatDuration($activity['duration_minutes']) : 'Berlangsung' ?>
+                                                <strong><?= $activity['duty_end'] ? formatDuration($activity['duration_minutes']) : 'Berlangsung' ?></strong>
+                                                <?php if ($is_long_duty): ?>
+                                                    <span class="long-duty-alert">
+                                                        <span class="btn-icon">⚠️</span> >7 Jam
+                                                    </span>
+                                                <?php endif; ?>
                                             </td>
                                             <td data-label="Tipe">
                                                 <span class="status-badge status-<?= $activity['is_manual'] ? 'warning' : 'info' ?>">

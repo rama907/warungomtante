@@ -8,6 +8,31 @@ if (!isLoggedIn()) {
 
 $user = getCurrentUser();
 
+// Tentukan apakah pengguna memiliki peran admin yang diizinkan untuk menginput data orang lain
+$is_admin_or_manager = hasRole(['direktur', 'wakil_direktur', 'manager']);
+
+// Inisialisasi ID karyawan yang akan diinput datanya. Defaultnya adalah user yang login.
+$employee_id_to_submit = $user['id'];
+$selected_employee_name = $user['name'];
+$selected_employee_role = $user['role'];
+
+// Jika pengguna memiliki peran admin, ambil daftar semua karyawan untuk dropdown
+$all_employees = [];
+if ($is_admin_or_manager) {
+    $all_employees = $conn->query("SELECT id, name, role FROM employees WHERE status = 'active' ORDER BY name")->fetch_all(MYSQLI_ASSOC);
+    // Jika ada ID anggota yang dipilih dari form, gunakan ID tersebut
+    if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
+        $employee_id_to_submit = (int)$_GET['employee_id'];
+        foreach ($all_employees as $emp) {
+            if ($emp['id'] === $employee_id_to_submit) {
+                $selected_employee_name = htmlspecialchars($emp['name']);
+                $selected_employee_role = $emp['role'];
+                break;
+            }
+        }
+    }
+}
+
 // Ambil jumlah permohonan pending untuk indikator sidebar
 $pending_requests_count = getPendingRequestCount();
 
@@ -17,8 +42,8 @@ $error_message = null;
 // --- Handle Delete Sales Entry ---
 if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POST['action'] === 'delete_sales_entry')) {
     $sales_entry_id = (int)($_POST['sales_entry_id'] ?? 0);
-    $employee_id_of_entry = $user['id']; // ID karyawan yang sedang login
-
+    
+    // Perbaikan: Hapus entri berdasarkan ID entri, tidak perlu employee_id dari sesi
     if ($sales_entry_id <= 0) {
         $error_message = "ID entri penjualan tidak valid!";
     } else {
@@ -26,33 +51,43 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         try {
             // Ambil detail entri sebelum dihapus untuk notifikasi
             $stmt_get_entry = $conn->prepare("
-                SELECT paket_makan_minum_warga, paket_makan_minum_instansi, paket_snack, masak_paket, masak_snack, date, input_time
+                SELECT paket_makan_minum_warga, paket_makan_minum_instansi, paket_snack, masak_paket, masak_snack, date, input_time, employee_id
                 FROM sales_data
-                WHERE id = ? AND employee_id = ?
+                WHERE id = ?
             ");
             if (!$stmt_get_entry) {
                 throw new Exception("Gagal menyiapkan query ambil detail entri penjualan: " . $conn->error);
             }
-            $stmt_get_entry->bind_param("ii", $sales_entry_id, $employee_id_of_entry);
+            $stmt_get_entry->bind_param("i", $sales_entry_id);
             $stmt_get_entry->execute();
             $entry_details = $stmt_get_entry->get_result()->fetch_assoc();
             $stmt_get_entry->close();
 
             if (!$entry_details) {
-                throw new Exception("Entri penjualan tidak ditemukan atau bukan milik Anda.");
+                throw new Exception("Entri penjualan tidak ditemukan.");
             }
-
+            
             // Hapus entri penjualan
-            $stmt_delete = $conn->prepare("DELETE FROM sales_data WHERE id = ? AND employee_id = ?");
+            $stmt_delete = $conn->prepare("DELETE FROM sales_data WHERE id = ?");
             if (!$stmt_delete) {
                 throw new Exception("Gagal menyiapkan query hapus entri penjualan: " . $conn->error);
             }
-            $stmt_delete->bind_param("ii", $sales_entry_id, $employee_id_of_entry);
+            $stmt_delete->bind_param("i", $sales_entry_id);
             
             if ($stmt_delete->execute() && $stmt_delete->affected_rows > 0) {
                 $conn->commit();
                 $success_message = "Entri penjualan tanggal " . date('d/m/Y H:i', strtotime($entry_details['input_time'])) . " berhasil dihapus.";
-                // Anda bisa menambahkan notifikasi Discord di sini jika diperlukan, seperti pada duty_log_deleted
+                
+                sendDiscordNotification([
+                    'employee_name' => getEmployeeNameById($entry_details['employee_id']),
+                    'sales_date_time' => date('d/m/Y H:i', strtotime($entry_details['input_time'])),
+                    'paket_makan_minum_warga' => $entry_details['paket_makan_minum_warga'],
+                    'paket_makan_minum_instansi' => $entry_details['paket_makan_minum_instansi'],
+                    'paket_snack' => $entry_details['paket_snack'],
+                    'masak_paket' => $entry_details['masak_paket'],
+                    'masak_snack' => $entry_details['masak_snack'],
+                ], 'sale_deleted');
+
             } else {
                 throw new Exception("Gagal menghapus entri penjualan. Mungkin sudah dihapus atau tidak ada perubahan.");
             }
@@ -62,7 +97,7 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
             $conn->rollback();
             $error_message = "Terjadi kesalahan: " . $e->getMessage();
         }
-        header("Location: sales.php?msg=" . urlencode($success_message ?? $error_message) . "&type=" . urlencode(isset($success_message) ? 'success' : 'error'));
+        header("Location: sales.php?msg=" . urlencode($success_message ?? $error_message) . "&type=" . urlencode(isset($success_message) ? 'success' : 'error') . "&employee_id=" . $employee_id_to_submit);
         exit;
     }
 }
@@ -80,8 +115,8 @@ if (isset($_GET['msg']) && isset($_GET['type'])) {
 
 
 // Handle form submission dengan sistem multiple input per hari
-// Menggunakan 'action' di dalam $_POST, jadi pastikan nilai 'action' adalah 'update_sales'
 if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POST['action'] === 'update_sales')) {
+    $employee_id_from_form = (int)($_POST['employee_id'] ?? $user['id']);
     $paket_makan_minum_warga = (int)($_POST['paket_makan_minum_warga'] ?? 0);
     $paket_makan_minum_instansi = (int)($_POST['paket_makan_minum_instansi'] ?? 0);
     $paket_snack = (int)($_POST['paket_snack'] ?? 0);
@@ -89,15 +124,12 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $masak_snack = (int)($_POST['masak_snack'] ?? 0);
     $date_input = $_POST['date'] ?? '';
     
-    // Inisialisasi $error_message untuk setiap kali submit form
     $error_message = null; 
 
-    // Validasi minimal pembelian untuk Paket Instansi
     if ($paket_makan_minum_instansi > 0 && $paket_makan_minum_instansi < 15) {
         $error_message = "Paket Makan Minum Instansi minimal 15 paket!";
     }
     
-    // Validasi input tanggal
     if (empty($date_input) && !$error_message) { 
         $error_message = "Tanggal harus diisi!";
     }
@@ -105,27 +137,23 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     $date_obj = null;
     $formatted_date = null;
 
-    if (!isset($error_message)) { // Hanya proses jika belum ada error lain
-        // Coba parsing tanggal dari format YYYY-MM-DD (format standar input type="date")
+    if (!isset($error_message)) {
         $date_obj = DateTime::createFromFormat('Y-m-d', $date_input);
-        $errors = DateTime::getLastErrors(); // Tangkap error/warning dari upaya pertama
+        $errors = DateTime::getLastErrors();
         
-        // Jika parsing YYYY-MM-DD gagal atau ada warning/error, coba format DD/MM/YYYY
         if (!$date_obj || $errors['warning_count'] > 0 || $errors['error_count'] > 0) {
-            DateTime::getLastErrors(); // Bersihkan error sebelumnya sebelum mencoba format lain
+            DateTime::getLastErrors(); 
             $date_obj = DateTime::createFromFormat('d/m/Y', $date_input);
-            $errors = DateTime::getLastErrors(); // Tangkap error/warning dari upaya kedua
+            $errors = DateTime::getLastErrors();
         }
 
-        // Jika setelah mencoba kedua format, objek DateTime masih belum valid atau ada error/warning
         if (!$date_obj || $errors['warning_count'] > 0 || $errors['error_count'] > 0) {
             $error_message = "Format tanggal tidak valid! Harap gunakan format YYYY-MM-DD (misal: 2025-07-24) atau DD/MM/YYYY (misal: 24/07/2025) yang lengkap dan akurat.";
         }
         
-        if (!$error_message) { // Lanjutkan validasi jika belum ada error format
-            $formatted_date = $date_obj->format('Y-m-d'); // Format ulang ke YYYY-MM-DD untuk database
+        if (!$error_message) {
+            $formatted_date = $date_obj->format('Y-m-d');
 
-            // Validasi tanggal tidak boleh di masa depan
             $today_limit = new DateTime();
             $today_limit->setTime(23, 59, 59);
 
@@ -133,7 +161,6 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
                 $error_message = "Tanggal tidak boleh di masa depan!";
             }
             
-            // Validasi tanggal tidak boleh lebih dari 30 hari yang lalu
             $thirty_days_ago = new DateTime();
             $thirty_days_ago->sub(new DateInterval('P30D'));
             $thirty_days_ago->setTime(0, 0, 0);
@@ -144,32 +171,29 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         }
     }
 
-    // Jika ada error_message yang diset di atas, redirect dan exit
     if (isset($error_message)) {
-        header("Location: sales.php?msg=" . urlencode($error_message) . "&type=error");
-        exit; // PENTING: Hentikan eksekusi setelah redirect error
+        header("Location: sales.php?msg=" . urlencode($error_message) . "&type=error" . "&employee_id=" . $employee_id_to_submit);
+        exit;
     }
 
-    // Jika semua validasi berhasil dan tidak ada error, lanjutkan ke proses INSERT
     $week_number = (int)$date_obj->format('W');
     $year = (int)$date_obj->format('Y');
     $input_time = date('Y-m-d H:i:s'); 
     
     try {
-        // Modifikasi di sini: Menggunakan STR_TO_DATE untuk konversi eksplisit di MySQL
         $stmt = $conn->prepare("
             INSERT INTO sales_data (employee_id, paket_makan_minum_warga, paket_makan_minum_instansi, paket_snack, masak_paket, masak_snack, date, week_number, year, input_time)
             VALUES (?, ?, ?, ?, ?, ?, STR_TO_DATE(?, '%Y-%m-%d'), ?, ?, ?)
         ");
         
         $stmt->bind_param("iiiiiiisis", 
-            $user['id'], 
+            $employee_id_from_form, 
             $paket_makan_minum_warga,
             $paket_makan_minum_instansi,
             $paket_snack, 
             $masak_paket, 
             $masak_snack, 
-            $formatted_date, // Ini adalah string YYYY-MM-DD yang sudah divalidasi
+            $formatted_date, 
             $week_number, 
             $year,
             $input_time 
@@ -179,12 +203,12 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
         
         if (!$result) {
             $error_message = "Gagal menyimpan data: " . $stmt->error;
-            header("Location: sales.php?msg=" . urlencode($error_message) . "&type=error");
+            header("Location: sales.php?msg=" . urlencode($error_message) . "&type=error" . "&employee_id=" . $employee_id_to_submit);
             exit;
         } else {
             $success_message = "Data penjualan berhasil disimpan untuk tanggal " . date('d/m/Y', strtotime($formatted_date)) . " pada jam " . date('H:i', strtotime($input_time)) . "!";
             sendDiscordNotification([
-                'employee_name' => $user['name'],
+                'employee_name' => getEmployeeNameById($employee_id_from_form),
                 'date' => $formatted_date,
                 'input_time' => $input_time,
                 'paket_makan_minum_warga' => $paket_makan_minum_warga,
@@ -194,12 +218,12 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
                 'masak_snack' => $masak_snack
             ], 'sale_input');
             
-            header("Location: " . $_SERVER['PHP_SELF'] . "?msg=" . urlencode($success_message) . "&type=success");
+            header("Location: " . $_SERVER['PHP_SELF'] . "?msg=" . urlencode($success_message) . "&type=success" . "&employee_id=" . $employee_id_to_submit);
             exit;
         }
     } catch (Exception $e) {
         $error_message = "Error database: " . $e->getMessage();
-        header("Location: sales.php?msg=" . urlencode($error_message) . "&type=error");
+        header("Location: sales.php?msg=" . urlencode($error_message) . "&type=error" . "&employee_id=" . $employee_id_to_submit);
         exit;
     } finally {
         if (isset($stmt)) {
@@ -208,23 +232,9 @@ if (($_SERVER['REQUEST_METHOD'] === 'POST') && (isset($_POST['action']) && $_POS
     }
 }
 
-// Menampilkan pesan feedback setelah redirect
-if (isset($_GET['msg']) && isset($_GET['type'])) {
-    $feedback_message = htmlspecialchars($_GET['msg']);
-    $feedback_type = htmlspecialchars($_GET['type']);
-    if ($feedback_type === 'success') {
-        $success_message = $feedback_message;
-    } else {
-        $error_message = $feedback_message;
-    }
-}
-
 // Perbaikan di sini: Ambil data mingguan dari kolom baru
-// Gunakan variabel date_obj dari POST atau default ke NOW() jika halaman baru dimuat
-// Agar ringkasan selalu relevan dengan input terakhir atau default hari ini.
 $date_obj_for_summary = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['date'])) {
-    // Jika ada input POST tanggal, gunakan tanggal tersebut untuk ringkasan
     $temp_date_input = $_POST['date'];
     $temp_date_obj_YMD = DateTime::createFromFormat('Y-m-d', $temp_date_input);
     $temp_date_obj_DMY = DateTime::createFromFormat('d/m/Y', $temp_date_input);
@@ -234,14 +244,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['date'])) {
     } elseif ($temp_date_obj_DMY && DateTime::getLastErrors()['warning_count'] == 0 && DateTime::getLastErrors()['error_count'] == 0) {
         $date_obj_for_summary = $temp_date_obj_DMY;
     } else {
-        $date_obj_for_summary = new DateTime(); // Fallback to current date
+        $date_obj_for_summary = new DateTime();
     }
 } else {
-    $date_obj_for_summary = new DateTime(); // Default to current date when page loads
+    $date_obj_for_summary = new DateTime();
 }
 
 
 // --- Perbaikan di sini: Query untuk Ringkasan Input Makan Minum (menyeluruh) ---
+// Gunakan $employee_id_to_submit untuk filter data
 $overall_sales_summary = [
     'total_paket_makan_minum_warga' => 0,
     'total_paket_makan_minum_instansi' => 0,
@@ -260,8 +271,8 @@ $stmt = $conn->prepare("
         COUNT(*) as total_entries
     FROM sales_data 
     WHERE employee_id = ?
-"); // Kondisi WHERE untuk tanggal dihapus untuk perhitungan menyeluruh
-$stmt->bind_param("i", $user['id']);
+");
+$stmt->bind_param("i", $employee_id_to_submit);
 $stmt->execute();
 $overall_sales_summary_result = $stmt->get_result()->fetch_assoc();
 if ($overall_sales_summary_result) {
@@ -278,7 +289,7 @@ $stmt = $conn->prepare("
     WHERE employee_id = ? AND date = ? 
     ORDER BY input_time DESC
 ");
-$stmt->bind_param("is", $user['id'], $today);
+$stmt->bind_param("is", $employee_id_to_submit, $today);
 $stmt->execute();
 $today_data = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
@@ -310,7 +321,7 @@ $stmt = $conn->prepare("
     ORDER BY input_time DESC 
     LIMIT 20
 ");
-$stmt->bind_param("i", $user['id']);
+$stmt->bind_param("i", $employee_id_to_submit);
 $stmt->execute();
 $recent_sales = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $stmt->close();
@@ -349,10 +360,20 @@ $stmt->close();
                 <div class="error-message">❌ <?= htmlspecialchars($error_message) ?></div>
             <?php endif; ?>
 
-            <?php // Pindahkan Ringkasan Minggu Ini di sini dan ubah jadi menyeluruh ?>
+            <?php // Tampilkan informasi khusus berdasarkan peran
+            if ($selected_employee_role === 'chef'): ?>
+                <div class="info-message" style="margin-bottom: var(--spacing-xl);">
+                    <strong>💡 Info Khusus Chef:</strong> Sesuai SOP terbaru, Anda tidak akan mendapatkan bonus dari penjualan. Fokuslah untuk menginput data **Masak** dan **Bertani** saja.
+                </div>
+            <?php elseif (in_array($selected_employee_role, ['karyawan', 'magang'])): ?>
+                <div class="info-message" style="margin-bottom: var(--spacing-xl);">
+                    <strong>💡 Info Khusus Karyawan/Magang:</strong> Sesuai SOP terbaru, Anda tidak perlu mengisi data masak. Fokuslah untuk menginput data **Penjualan** dengan target yang sudah ditentukan.
+                </div>
+            <?php endif; ?>
+
             <div class="card full-width" style="margin-bottom: var(--spacing-xl);">
                 <div class="card-header">
-                    <h3>Ringkasan Input</h3>
+                    <h3>Ringkasan Input <?= ($is_admin_or_manager && $employee_id_to_submit !== $user['id']) ? 'untuk ' . $selected_employee_name : '' ?></h3>
                     <span class="entry-count">
                         <?= $overall_sales_summary['total_paket_makan_minum_warga'] + $overall_sales_summary['total_paket_makan_minum_instansi'] + $overall_sales_summary['total_paket_snack'] + $overall_sales_summary['total_masak_paket'] + $overall_sales_summary['total_masak_snack'] ?> Total Paket
                     </span>
@@ -432,6 +453,23 @@ $stmt->close();
                         
                         <form method="POST" class="sales-form" id="sales-form">
                             <input type="hidden" name="action" value="update_sales">
+                            <input type="hidden" id="employee_role" value="<?= htmlspecialchars($selected_employee_role) ?>">
+                            
+                            <?php if ($is_admin_or_manager): ?>
+                            <div class="form-group">
+                                <label for="employee_id_input">Untuk Anggota</label>
+                                <select name="employee_id" id="employee_id_input" class="form-select" onchange="window.location.href='sales.php?employee_id=' + this.value">
+                                    <option value="<?= $user['id'] ?>" <?= ($employee_id_to_submit == $user['id']) ? 'selected' : '' ?>>-- Untuk Diri Sendiri --</option>
+                                    <?php foreach ($all_employees as $emp): ?>
+                                        <option value="<?= $emp['id'] ?>" <?= ($employee_id_to_submit == $emp['id']) ? 'selected' : '' ?>>
+                                            <?= htmlspecialchars($emp['name']) ?> (<?= getRoleDisplayName($emp['role']) ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <?php else: ?>
+                                <input type="hidden" name="employee_id" value="<?= $user['id'] ?>">
+                            <?php endif; ?>
                             
                             <div class="form-group"> <label for="date">Tanggal Penjualan</label>
                                 <input type="date" 
@@ -527,7 +565,7 @@ $stmt->close();
                 <?php // Pindahkan Riwayat Penjualan Terbaru di sini ?>
                 <div class="card full-width">
                     <div class="card-header">
-                        <h3>Riwayat Penjualan Terbaru</h3>
+                        <h3>Riwayat Penjualan Terbaru <?= ($is_admin_or_manager && $employee_id_to_submit !== $user['id']) ? 'untuk ' . $selected_employee_name : '' ?></h3>
                         <span class="entry-count">20 Terakhir</span>
                     </div>
                     <div class="card-content">
@@ -677,6 +715,33 @@ $stmt->close();
             const form = document.getElementById('sales-form');
             const dateInput = document.getElementById('date');
             const paketMakanMinumInstansiInput = document.getElementById('paket_makan_minum_instansi');
+            
+            // Peran pengguna yang sedang menginput data
+            const employeeRole = document.getElementById('employee_role').value;
+            
+            // Ambil nilai dari input penjualan dan masak
+            const salesInput = parseInt(document.getElementById('paket_makan_minum_warga').value) +
+                             parseInt(document.getElementById('paket_makan_minum_instansi').value) +
+                             parseInt(document.getElementById('paket_snack').value);
+
+            const masakInput = parseInt(document.getElementById('masak_paket').value) +
+                              parseInt(document.getElementById('masak_snack').value);
+
+            // Cek jika chef mengisi kolom penjualan
+            if (employeeRole === 'chef' && salesInput > 0) {
+                const confirmation = confirm("Anda adalah seorang Chef. Sesuai SOP, Anda tidak mendapatkan bonus dari penjualan. Apakah Anda yakin ingin menginput data penjualan?");
+                if (!confirmation) {
+                    return false;
+                }
+            }
+
+            // Cek jika karyawan/magang mengisi kolom masak
+            if (['karyawan', 'magang'].includes(employeeRole) && masakInput > 0) {
+                const confirmation = confirm("Anda adalah seorang Karyawan/Magang. Sesuai SOP, Anda tidak perlu mengisi data masak. Apakah Anda yakin ingin menginput data masak?");
+                if (!confirmation) {
+                    return false;
+                }
+            }
             
             if (!dateInput.value) {
                 showNotification('Tanggal harus diisi!', 'error');

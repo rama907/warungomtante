@@ -194,6 +194,9 @@ foreach ($employees as $employee) {
             left: 0;
             background-color: var(--bg-card); /* Menjaga latar belakang saat scroll */
             z-index: 10; /* Pastikan di atas sel lain saat scroll */
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
         }
         .attendance-table tbody tr:hover .employee-name-cell {
             background-color: var(--bg-secondary); /* Sesuaikan saat hover */
@@ -242,6 +245,10 @@ foreach ($employees as $employee) {
                     **<?= $start_date_obj->format('d M Y') ?>** hingga
                     **<?= $end_date_obj->format('d M Y') ?>**.</p>
             </div>
+            
+            <div class="info-message" style="margin-bottom: var(--spacing-xl);">
+                <strong>💡 Info:</strong> Tanda seru `!` di sebelah nama menunjukkan anggota memiliki lebih dari 3 hari absen beruntun dalam periode ini.
+            </div>
 
             <div class="attendance-table-container">
                 <table class="attendance-table">
@@ -262,7 +269,12 @@ foreach ($employees as $employee) {
                         <?php else: ?>
                             <?php foreach ($attendance_data as $data): ?>
                                 <tr>
-                                    <td class="employee-name-cell"><?= htmlspecialchars($data['employee_name']) ?></td>
+                                    <td class="employee-name-cell <?= $data['max_consecutive_absent'] > 3 ? 'long-absent-warning' : '' ?>">
+                                        <?= htmlspecialchars($data['employee_name']) ?>
+                                        <?php if ($data['max_consecutive_absent'] > 3): ?>
+                                            <span class="long-absent-alert">!</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <?php foreach ($data['daily_statuses'] as $date_str => $status): ?>
                                         <td>
                                             <span class="status-cell status-<?= $status ?>">

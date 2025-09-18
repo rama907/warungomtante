@@ -64,6 +64,22 @@ function getRoleDisplayName($role) {
     return $roles[$role] ?? ucfirst($role);
 }
 
+// Fungsi untuk mendapatkan nama karyawan berdasarkan ID
+function getEmployeeNameById($id) {
+    global $conn;
+    $stmt = $conn->prepare("SELECT name FROM employees WHERE id = ?");
+    if (!$stmt) {
+        error_log("Error preparing getEmployeeNameById statement: " . $conn->error);
+        return 'Unknown Employee';
+    }
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $result['name'] ?? 'Tidak Dikenal';
+}
+
+
 // Fungsi untuk mengirim notifikasi ke Discord
 function sendDiscordNotification($data, $type = 'info') {
     // URL Webhook Discord Anda
@@ -77,7 +93,7 @@ function sendDiscordNotification($data, $type = 'info') {
     $webhooks_to_send = [$general_webhook_url]; // Default: selalu kirim ke webhook umum
 
     // Jika tipe notifikasi adalah pengajuan cuti/resign, atau pembaruan status permohonan, tambahkan webhook kedua
-    if (in_array($type, ['leave_request_submitted', 'resignation_request_submitted', 'manual_duty_request_submitted', 'request_status_update'])) {
+    if (in_array($type, ['leave_request_submitted', 'resignation_request_submitted', 'manual_duty_request_submitted', 'request_status_update', 'warning_letter_issued', 'warning_letter_deleted'])) {
         // Pastikan URL webhook kedua telah diatur dan bukan placeholder
         if (!empty($request_webhook_url) && $request_webhook_url !== 'https://discord.com/api/webhooks/YOUR_SECOND_WEBHOOK_URL_HERE') {
             $webhooks_to_send[] = $request_webhook_url;
@@ -100,7 +116,9 @@ function sendDiscordNotification($data, $type = 'info') {
         'sale_deleted' => 15548997, // Merah terang (contoh: Penghapusan penjualan)
         'salary_paid_single' => 3066993, // Hijau untuk gaji dibayar
         'salary_unpaid_single' => 16776960, // Kuning untuk gaji dibatalkan
-        'salary_unpaid_all' => 16750899 // Orange/Merah untuk reset semua gaji
+        'salary_unpaid_all' => 16750899, // Orange/Merah untuk reset semua gaji
+        'warning_letter_issued' => 16750899, // Orange untuk SP
+        'warning_letter_deleted' => 15158332, // Merah untuk hapus SP
     ];
     $color = $colors[$type] ?? 0; // Ambil warna berdasarkan tipe, default hitam
 
@@ -372,6 +390,32 @@ function sendDiscordNotification($data, $type = 'info') {
                 ['name' => 'Waktu Selesai (estimasi)', 'value' => $duty_end_time, 'inline' => true],
                 ['name' => 'Durasi (estimasi)', 'value' => $duration_display, 'inline' => true],
                 ['name' => 'Saran', 'value' => "Mohon informasikan anggota tersebut untuk mengajukan `Input Jam Manual` jika periode ini perlu dicatat ulang.", 'inline' => false]
+            ];
+            break;
+        case 'warning_letter_deleted': // Notifikasi baru untuk penghapusan SP
+            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
+            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
+            $embed['title'] = "🗑️ Surat Peringatan Dihapus!";
+            $embed['description'] = "Surat Peringatan untuk **{$employee_name}** telah dihapus oleh **{$admin_name}**.";
+            $embed['color'] = $colors['danger'];
+            $embed['fields'] = [
+                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Dihapus Oleh', 'value' => $admin_name, 'inline' => true]
+            ];
+            break;
+        case 'warning_letter_issued': // Notifikasi baru untuk pemberian SP
+            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
+            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
+            $sp_type = htmlspecialchars($data['sp_type'] ?? 'N/A');
+            $reason = htmlspecialchars($data['reason'] ?? 'N/A');
+            $embed['title'] = "⚠️ Surat Peringatan Dikeluarkan!";
+            $embed['description'] = "Surat Peringatan **{$sp_type}** untuk **{$employee_name}** telah dikeluarkan oleh **{$admin_name}**.";
+            $embed['color'] = $colors['warning'];
+            $embed['fields'] = [
+                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Tipe SP', 'value' => $sp_type, 'inline' => true],
+                ['name' => 'Dikeluarkan Oleh', 'value' => $admin_name, 'inline' => true],
+                ['name' => 'Alasan', 'value' => $reason, 'inline' => false]
             ];
             break;
 

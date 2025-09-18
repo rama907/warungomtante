@@ -31,7 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $deleted_logs = [];
 
             $placeholders = implode(',', array_fill(0, count($duty_log_ids), '?'));
-            $types = str_repeat('i', count($duty_log_ids)) . 'i'; // Perbaikan di sini: Tambahkan 'i' untuk employee_id
+            $types = str_repeat('i', count($duty_log_ids)) . 'i'; 
             $params = $duty_log_ids;
             $params[] = $employee_id_of_log;
 
@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if (!$stmt_get_logs) {
                 throw new Exception("Gagal menyiapkan query ambil detail log: " . $conn->error);
             }
-            $stmt_get_logs->bind_param($types, ...$params); // Perbaikan di sini: gunakan $types dan $params yang sudah diperbarui
+            $stmt_get_logs->bind_param($types, ...$params); 
             $stmt_get_logs->execute();
             $result = $stmt_get_logs->get_result();
             while ($row = $result->fetch_assoc()) {
@@ -90,6 +90,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Get all active employees for the dropdown
 $all_employees = $conn->query("SELECT id, name, role FROM employees WHERE status = 'active' ORDER BY name")->fetch_all(MYSQLI_ASSOC);
+
+// BARU: Query untuk mendapatkan ID karyawan yang memiliki log durasi > 7 jam
+$long_duty_employees_ids = [];
+$stmt_long_duty = $conn->query("SELECT DISTINCT employee_id FROM duty_logs WHERE duration_minutes > 420");
+if ($stmt_long_duty) {
+    while ($row = $stmt_long_duty->fetch_assoc()) {
+        $long_duty_employees_ids[] = $row['employee_id'];
+    }
+    $stmt_long_duty->close();
+}
+
 
 // Handle employee selection
 if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
@@ -151,6 +162,17 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                 width: 100%;
             }
         }
+        /* Gaya untuk baris tabel yang durasi kerjanya panjang */
+        .long-duty-row {
+            background-color: var(--warning-light) !important;
+        }
+        .long-duty-alert {
+            font-weight: bold;
+            color: var(--warning-color);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
     </style>
 </head>
 <body>
@@ -187,10 +209,16 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                             <?php foreach ($all_employees as $emp): ?>
                                 <option value="<?= $emp['id'] ?>" <?= ($selected_employee_id === $emp['id']) ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($emp['name']) ?> (<?= getRoleDisplayName($emp['role']) ?>)
+                                    <?php if (in_array($emp['id'], $long_duty_employees_ids)): ?>
+                                        &nbsp;!
+                                    <?php endif; ?>
                                 </option>
                             <?php endforeach; ?>
                         </select>
                     </form>
+                    <div class="info-message" style="margin-top: var(--spacing-lg);">
+                        <strong>💡 Info:</strong> Tanda seru `!` di sebelah nama menunjukkan adanya sesi kerja tunggal yang melebihi **7 jam**.
+                    </div>
                 </div>
             </div>
 
@@ -203,6 +231,9 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                         <?php if (empty($employee_duty_logs)): ?>
                             <div class="no-data">Belum ada riwayat jam kerja untuk anggota ini.</div>
                         <?php else: ?>
+                            <div class="info-message" style="margin-bottom: var(--spacing-xl);">
+                                <strong>💡 Info:</strong> Baris dengan latar belakang kuning mengindikasikan jam kerja per absensi yang melebihi **7 jam**.
+                            </div>
                             <form method="POST" id="delete-multiple-form">
                                 <input type="hidden" name="action" value="delete_duty_logs">
                                 <input type="hidden" name="employee_id_of_log" value="<?= $selected_employee_id ?>">
@@ -222,12 +253,23 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                                         </thead>
                                         <tbody>
                                             <?php foreach ($employee_duty_logs as $log): ?>
-                                            <tr>
+                                            <?php
+                                            // Cek jika durasi melebihi 7 jam (420 menit)
+                                            $is_long_duty = ($log['duration_minutes'] > 420);
+                                            ?>
+                                            <tr class="<?= $is_long_duty ? 'long-duty-row' : '' ?>">
                                                 <td><input type="checkbox" name="duty_log_ids[]" value="<?= $log['id'] ?>" class="row-checkbox"></td>
                                                 <td data-label="Tanggal"><?= date('d/m/Y', strtotime($log['duty_start'])) ?></td>
                                                 <td data-label="Mulai"><?= date('H:i', strtotime($log['duty_start'])) ?></td>
                                                 <td data-label="Selesai"><?= $log['duty_end'] ? date('H:i', strtotime($log['duty_end'])) : 'Berlangsung' ?></td>
-                                                <td data-label="Durasi"><?= $log['duty_end'] ? formatDuration($log['duration_minutes']) : 'Berlangsung' ?></td>
+                                                <td data-label="Durasi">
+                                                    <strong><?= $log['duty_end'] ? formatDuration($log['duration_minutes']) : 'Berlangsung' ?></strong>
+                                                    <?php if ($is_long_duty): ?>
+                                                        <span class="long-duty-alert">
+                                                            <span class="btn-icon">⚠️</span> >7 Jam
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </td>
                                                 <td data-label="Tipe">
                                                     <span class="status-badge status-<?= $log['is_manual'] ? 'warning' : 'info' ?>">
                                                         <?= $log['is_manual'] ? 'Manual' : 'Otomatis' ?>
