@@ -9,7 +9,7 @@ if (!isLoggedIn()) {
 $user = getCurrentUser();
 
 // Tentukan apakah pengguna memiliki peran admin yang diizinkan
-$is_admin_or_manager = hasRole(['direktur', 'wakil_direktur', 'manager']);
+$is_admin_or_manager = hasRole(['ceo', 'direktur', 'wakil_direktur', 'manager']);
 
 // Inisialisasi ID karyawan yang akan diinput datanya. Defaultnya adalah user yang login.
 $employee_id_to_submit = $user['id'];
@@ -128,7 +128,7 @@ $manual_requests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Input Jam Manual - Warung Om Tante</title>
+    <title>Input Jam Manual - Warung Om Tante V2</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">

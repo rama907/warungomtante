@@ -17,10 +17,12 @@ if (!function_exists('formatDuration')) {
 if (!function_exists('getRoleDisplayName')) {
     function getRoleDisplayName($role) {
         $roles = [
+            'ceo' => 'CEO',
             'direktur' => 'Direktur',
             'wakil_direktur' => 'Wakil Direktur',
             'manager' => 'Manager',
-            'chef' => 'Chef',
+            'barista' => 'Barista', // Updated role name based on context usually found
+            'waiters' => 'Waiters',
             'karyawan' => 'Karyawan',
             'magang' => 'Magang',
             // Tambahkan peran lain jika ada
@@ -29,12 +31,13 @@ if (!function_exists('getRoleDisplayName')) {
     }
 }
 
-if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur', 'manager'])) {
+if (!isLoggedIn() || !hasRole(['ceo', 'direktur', 'wakil_direktur', 'manager'])) {
     header('Location: dashboard.php');
     exit;
 }
 
 // Dapatkan ringkasan aktivitas karyawan (mengambil data keseluruhan)
+// MODIFIKASI QUERY: Menambahkan Logika Royale (paket_vip_person)
 $stmt = $conn->query("
     SELECT
         e.id,
@@ -42,154 +45,200 @@ $stmt = $conn->query("
         e.role,
         e.is_on_duty,
         COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-        -- PERBAIKAN: Mengambil kolom paket makan minum yang baru
-        COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
-        COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
-        COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
-        COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
-        COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
+        
+        -- Kolom Sales
+        COALESCE(sales_summary.paket_sake, 0) as paket_western_sales,
+        COALESCE(sales_summary.paket_anggur_merah, 0) as paket_nusantara_sales,
+        COALESCE(sales_summary.paket_tuak, 0) as paket_kids_meal_sales,
+        COALESCE(sales_summary.paket_royale_sales, 0) as paket_royale_sales, -- NEW
+        
+        -- Kolom Masak
+        COALESCE(sales_summary.paket_spicy_1, 0) as paket_western_prep, 
+        COALESCE(sales_summary.paket_spicy_2, 0) as paket_nusantara_prep,  
+        COALESCE(sales_summary.paket_spicy_3, 0) as paket_kids_meal_prep,
+        COALESCE(sales_summary.paket_royale_prep, 0) as paket_royale_prep, -- NEW
+        
+        -- TOTAL CALCULATED FIELDS (Updated with Royale)
+        (
+            COALESCE(sales_summary.paket_sake, 0) + 
+            COALESCE(sales_summary.paket_anggur_merah, 0) + 
+            COALESCE(sales_summary.paket_tuak, 0) +
+            COALESCE(sales_summary.paket_royale_sales, 0)
+        ) AS total_sales_packages,
+        
+        (
+            COALESCE(sales_summary.paket_spicy_1, 0) + 
+            COALESCE(sales_summary.paket_spicy_2, 0) + 
+            COALESCE(sales_summary.paket_spicy_3, 0) +
+            COALESCE(sales_summary.paket_royale_prep, 0)
+        ) AS total_prep_packages
+
     FROM employees e
     LEFT JOIN (
         SELECT
             employee_id,
             SUM(duration_minutes) as total_duty_minutes
         FROM duty_logs
-        WHERE status = 'completed' -- Hanya mengambil yang sudah selesai
+        WHERE status = 'completed'
         GROUP BY employee_id
     ) as duty_summary ON e.id = duty_summary.employee_id
     LEFT JOIN (
         SELECT
             employee_id,
-            -- PERBAIKAN: Menjumlahkan kolom paket makan minum yang baru
-            SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
-            SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
-            SUM(paket_snack) as total_paket_snack,
-            SUM(masak_paket) as total_masak_paket,
-            SUM(masak_snack) as total_masak_snack
+            SUM(paket_sake) as paket_sake,
+            SUM(paket_anggur_merah) as paket_anggur_merah,
+            SUM(paket_tuak) as paket_tuak,
+            -- Logic Royale Sales: vip_person > 0 AND (spicy sums = 0)
+            SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_sales,
+
+            SUM(paket_spicy_1) as paket_spicy_1,
+            SUM(paket_spicy_2) as paket_spicy_2,
+            SUM(paket_spicy_3) as paket_spicy_3,
+            -- Logic Royale Prep: vip_person > 0 AND (sales sums = 0)
+            SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_prep
         FROM sales_data
         GROUP BY employee_id
     ) as sales_summary ON e.id = sales_summary.employee_id
     WHERE e.status = 'active'
     ORDER BY
         CASE e.role
-            WHEN 'direktur' THEN 1
-            WHEN 'wakil_direktur' THEN 2
-            WHEN 'manager' THEN 3
-            WHEN 'chef' THEN 4
-            WHEN 'karyawan' THEN 5
-            WHEN 'magang' THEN 6
+            WHEN 'ceo' THEN 1
+            WHEN 'direktur' THEN 2
+            WHEN 'wakil_direktur' THEN 3
+            WHEN 'manager' THEN 4
+            WHEN 'barista' THEN 5
+            WHEN 'waiters' THEN 6
+            WHEN 'karyawan' THEN 7
+            WHEN 'magang' THEN 8
+            ELSE 9
         END,
         e.name
 ");
-$employee_activities = $stmt->fetch_all(MYSQLI_ASSOC); // Baris 80 Anda
-$stmt->close(); // Tutup statement setelah mengambil hasil
 
-// Hitung total penjualan (paket makan minum + paket snack) secara keseluruhan
-// PERBAIKAN: Menggunakan kolom paket makan minum yang baru untuk perhitungan total keseluruhan
-$total_paket_terjual_keseluruhan = array_sum(array_column($employee_activities, 'total_paket_makan_minum_warga')) +
-                                   array_sum(array_column($employee_activities, 'total_paket_makan_minum_instansi')) +
-                                   array_sum(array_column($employee_activities, 'total_paket_snack'));
+if ($stmt === false) {
+    die("Gagal menjalankan query: " . $conn->error);
+}
 
-// Hitung total masak (masak paket + masak snack) secara keseluruhan
-$total_masak_keseluruhan = array_sum(array_column($employee_activities, 'total_masak_paket')) +
-                            array_sum(array_column($employee_activities, 'total_masak_snack'));
+$employee_activities = $stmt->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
+// --- Hitung Total Keseluruhan (OVERALL SUMMARY) ---
+
+// Total Penjualan Paket
+$total_western_sales = array_sum(array_column($employee_activities, 'paket_western_sales'));
+$total_nusantara_sales = array_sum(array_column($employee_activities, 'paket_nusantara_sales'));
+$total_kids_meal_sales = array_sum(array_column($employee_activities, 'paket_kids_meal_sales'));
+$total_royale_sales = array_sum(array_column($employee_activities, 'paket_royale_sales')); // NEW
+$total_penjualan_paket_keseluruhan = $total_western_sales + $total_nusantara_sales + $total_kids_meal_sales + $total_royale_sales;
+
+// Total Masak Paket
+$total_western_prep = array_sum(array_column($employee_activities, 'paket_western_prep'));
+$total_nusantara_prep = array_sum(array_column($employee_activities, 'paket_nusantara_prep'));
+$total_kids_meal_prep = array_sum(array_column($employee_activities, 'paket_kids_meal_prep'));
+$total_royale_prep = array_sum(array_column($employee_activities, 'paket_royale_prep')); // NEW
+$total_masak_paket_keseluruhan = $total_western_prep + $total_nusantara_prep + $total_kids_meal_prep + $total_royale_prep;
+
 
 // === START EXPORT LOGIC ===
 if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
-    // Kueri ekspor juga diubah untuk mencerminkan data keseluruhan
-    $export_stmt = $conn->query("
+    
+    // Ulangi query logic untuk mendapatkan data mentah ekspor (Sama dengan query utama)
+    $export_stmt_sql = "
         SELECT
-            e.id,
-            e.name,
-            e.role,
-            e.is_on_duty,
+            e.id, e.name, e.role, e.is_on_duty,
             COALESCE(duty_summary.total_duty_minutes, 0) as total_duty_minutes,
-            -- PERBAIKAN: Mengambil kolom paket makan minum yang baru untuk ekspor
-            COALESCE(sales_summary.total_paket_makan_minum_warga, 0) as total_paket_makan_minum_warga,
-            COALESCE(sales_summary.total_paket_makan_minum_instansi, 0) as total_paket_makan_minum_instansi,
-            COALESCE(sales_summary.total_paket_snack, 0) as total_paket_snack,
-            COALESCE(sales_summary.total_masak_paket, 0) as total_masak_paket,
-            COALESCE(sales_summary.total_masak_snack, 0) as total_masak_snack
+            
+            COALESCE(sales_summary.paket_sake, 0) as paket_western_sales,
+            COALESCE(sales_summary.paket_anggur_merah, 0) as paket_nusantara_sales,
+            COALESCE(sales_summary.paket_tuak, 0) as paket_kids_meal_sales,
+            COALESCE(sales_summary.paket_royale_sales, 0) as paket_royale_sales,
+
+            COALESCE(sales_summary.paket_spicy_1, 0) as paket_western_prep, 
+            COALESCE(sales_summary.paket_spicy_2, 0) as paket_nusantara_prep,  
+            COALESCE(sales_summary.paket_spicy_3, 0) as paket_kids_meal_prep,
+            COALESCE(sales_summary.paket_royale_prep, 0) as paket_royale_prep
+
         FROM employees e
         LEFT JOIN (
-            SELECT
-                employee_id,
-                SUM(duration_minutes) as total_duty_minutes
-            FROM duty_logs
-            WHERE status = 'completed'
-            GROUP BY employee_id
+            SELECT employee_id, SUM(duration_minutes) as total_duty_minutes FROM duty_logs WHERE status = 'completed' GROUP BY employee_id
         ) as duty_summary ON e.id = duty_summary.employee_id
         LEFT JOIN (
-            SELECT
-                employee_id,
-                -- PERBAIKAN: Menjumlahkan kolom paket makan minum yang baru untuk ekspor
-                SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
-                SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
-                SUM(paket_snack) as total_paket_snack,
-                SUM(masak_paket) as total_masak_paket,
-                SUM(masak_snack) as total_masak_snack
-            FROM sales_data
-            GROUP BY employee_id
+            SELECT 
+                employee_id, 
+                SUM(paket_sake) as paket_sake, 
+                SUM(paket_anggur_merah) as paket_anggur_merah, 
+                SUM(paket_tuak) as paket_tuak, 
+                SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_sales,
+                
+                SUM(paket_spicy_1) as paket_spicy_1, 
+                SUM(paket_spicy_2) as paket_spicy_2, 
+                SUM(paket_spicy_3) as paket_spicy_3,
+                SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_prep
+            FROM sales_data GROUP BY employee_id
         ) as sales_summary ON e.id = sales_summary.employee_id
         WHERE e.status = 'active'
-        ORDER BY
-            CASE e.role
-                WHEN 'direktur' THEN 1
-                WHEN 'wakil_direktur' THEN 2
-                WHEN 'manager' THEN 3
-                WHEN 'chef' THEN 4
-                WHEN 'karyawan' THEN 5
-                WHEN 'magang' THEN 6
-            END,
-            e.name
-    ");
-    $export_data = $export_stmt->fetch_all(MYSQLI_ASSOC);
+        ORDER BY e.name
+    ";
+
+    $export_stmt = $conn->query($export_stmt_sql);
+    if ($export_stmt === false) { die("Gagal menjalankan query ekspor: " . $conn->error); }
+    $export_data_raw = $export_stmt->fetch_all(MYSQLI_ASSOC);
     $export_stmt->close();
 
-    // Set header untuk unduhan CSV
     header('Content-Type: text/csv');
-    header('Content-Disposition: attachment; filename="aktivitas_anggota_' . date('Ymd_His') . '.csv"');
+    header('Content-Disposition: attachment; filename="aktivitas_anggota_royale_' . date('Ymd_His') . '.csv"');
     header('Cache-Control: no-cache, no-store, must-revalidate');
     header('Pragma: no-cache');
     header('Expires: 0');
 
     $output = fopen('php://output', 'w');
+    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF)); // UTF-8 BOM
 
-    // Tambahkan UTF-8 BOM untuk kompatibilitas Excel (penting untuk karakter non-ASCII)
-    fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
-
-    // Definisikan CSV headers (ramah pengguna)
+    // Definisikan CSV headers (Update with Royale)
     $headers = [
         'Nama',
         'Jabatan',
         'Status On Duty',
-        'Total Jam Kerja Keseluruhan',
-        'Total Paket Makan & Minum Warga Terjual', // PERBAIKAN: Header baru
-        'Total Paket Makan & Minum Instansi Terjual', // PERBAIKAN: Header baru
-        'Total Paket Snack Terjual',
+        'Total Jam Kerja (Menit)',
+        'Total Penjualan Paket',
+        'Western (Jual)', 
+        'Nusantara (Jual)',
+        'Kids Meal (Jual)',
+        'Royale (Jual)',
         'Total Masak Paket',
-        'Total Masak Snack'
+        'Western (Masak)',
+        'Nusantara (Masak)',
+        'Kids Meal (Masak)',
+        'Royale (Masak)',
     ];
     fputcsv($output, $headers);
 
     // Tulis baris data
-    foreach ($export_data as $row) {
+    foreach ($export_data_raw as $row) {
+        $total_sales = $row['paket_western_sales'] + $row['paket_nusantara_sales'] + $row['paket_kids_meal_sales'] + $row['paket_royale_sales'];
+        $total_prep = $row['paket_western_prep'] + $row['paket_nusantara_prep'] + $row['paket_kids_meal_prep'] + $row['paket_royale_prep'];
+        
         $data_row = [
-            htmlspecialchars_decode($row['name']), // Dekode entitas HTML jika ada
+            htmlspecialchars_decode($row['name']), 
             getRoleDisplayName($row['role']),
             $row['is_on_duty'] ? 'On Duty' : 'Off Duty',
-            formatDuration($row['total_duty_minutes']),
-            $row['total_paket_makan_minum_warga'], // PERBAIKAN: Data baru
-            $row['total_paket_makan_minum_instansi'], // PERBAIKAN: Data baru
-            $row['total_paket_snack'],
-            $row['total_masak_paket'],
-            $row['total_masak_snack']
+            $row['total_duty_minutes'],
+            $total_sales,
+            $row['paket_western_sales'], 
+            $row['paket_nusantara_sales'],
+            $row['paket_kids_meal_sales'],
+            $row['paket_royale_sales'],
+            $total_prep,
+            $row['paket_western_prep'],
+            $row['paket_nusantara_prep'], 
+            $row['paket_kids_meal_prep'], 
+            $row['paket_royale_prep'], 
         ];
         fputcsv($output, $data_row);
     }
 
     fclose($output);
-    exit; // Hentikan eksekusi lebih lanjut setelah mengirim file
+    exit;
 }
 // === AKHIR LOGIKA EKSPOR ===
 ?>
@@ -199,7 +248,7 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aktivitas Anggota - Warung Om Tante</title>
+    <title>Aktivitas Anggota - Warung Om Tante V2</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -237,21 +286,30 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                 <div class="summary-card">
                     <div class="summary-icon" style="color: var(--primary-color);">💰</div>
                     <div class="summary-content">
-                        <h4>Total Penjualan Keseluruhan</h4>
+                        <h4>Total Penjualan Paket</h4>
                         <p class="summary-value">
-                            <?php // PERBAIKAN: Menggunakan kolom paket makan minum yang baru untuk tampilan total
-                            echo array_sum(array_column($employee_activities, 'total_paket_makan_minum_warga')) +
-                                 array_sum(array_column($employee_activities, 'total_paket_makan_minum_instansi')) +
-                                 array_sum(array_column($employee_activities, 'total_paket_snack'));
-                            ?>
+                            <?= $total_penjualan_paket_keseluruhan ?> Paket
+                        </p>
+                        <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
+                            <span>Western: <strong><?= $total_western_sales ?></strong></span>
+                            <span>Nusantara: <strong><?= $total_nusantara_sales ?></strong></span>
+                            <span>Kids Meal: <strong><?= $total_kids_meal_sales ?></strong></span>
+                            <span>Royale: <strong><?= $total_royale_sales ?></strong></span>
                         </p>
                     </div>
                 </div>
-                <div class="summary-card">
-                    <div class="summary-icon" style="color: var(--warning-color);">🍜</div> <div class="summary-content">
-                        <h4>Total Masak Keseluruhan</h4>
+                 <div class="summary-card">
+                    <div class="summary-icon" style="color: var(--warning-color);">🔪</div>
+                    <div class="summary-content">
+                        <h4>Total Masak Paket</h4>
                         <p class="summary-value">
-                            <?= $total_masak_keseluruhan ?>
+                            <?= $total_masak_paket_keseluruhan ?> Paket
+                        </p>
+                        <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
+                            <span>Western: <strong><?= $total_western_prep ?></strong></span>
+                            <span>Nusantara: <strong><?= $total_nusantara_prep ?></strong></span>
+                            <span>Kids Meal: <strong><?= $total_kids_meal_prep ?></strong></span>
+                            <span>Royale: <strong><?= $total_royale_prep ?></strong></span>
                         </p>
                     </div>
                 </div>
@@ -279,15 +337,21 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                     <th>Jabatan</th>
                                     <th>Status</th>
                                     <th>Total Jam Kerja</th>
-                                    <th>Paket M&M Warga</th> <th>Paket M&M Instansi</th> <th>Paket Snack</th>
-                                    <th>Masak Paket</th>
-                                    <th>Masak Snack</th>
-                                </tr>
+                                    <th>Total Jual</th> 
+                                    <th>Jual (Western)</th>
+                                    <th>Jual (Nusantara)</th>
+                                    <th>Jual (Kids Meal)</th>
+                                    <th>Jual (Royale)</th> <th>Total Masak</th> 
+                                    <th>Masak (Western)</th>
+                                    <th>Masak (Nusantara)</th>
+                                    <th>Masak (Kids Meal)</th>
+                                    <th>Masak (Royale)</th> </tr>
                             </thead>
                             <tbody>
                                 <?php if (empty($employee_activities)): ?>
                                     <tr>
-                                        <td colspan="9" class="no-data">Belum ada data aktivitas anggota.</td> </tr>
+                                        <td colspan="14" class="no-data">Belum ada data aktivitas anggota.</td>
+                                    </tr>
                                 <?php else: ?>
                                     <?php foreach ($employee_activities as $activity): ?>
                                     <tr>
@@ -313,9 +377,22 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
                                         <td data-label="Total Jam Kerja">
                                             <strong><?= formatDuration($activity['total_duty_minutes']) ?></strong>
                                         </td>
-                                        <td data-label="Paket M&M Warga"><?= $activity['total_paket_makan_minum_warga'] ?></td> <td data-label="Paket M&M Instansi"><?= $activity['total_paket_makan_minum_instansi'] ?></td> <td data-label="Paket Snack"><?= $activity['total_paket_snack'] ?></td>
-                                        <td data-label="Masak Paket"><?= $activity['total_masak_paket'] ?></td>
-                                        <td data-label="Masak Snack"><?= $activity['total_masak_snack'] ?></td>
+                                        
+                                        <td data-label="Total Jual">
+                                            <strong><?= $activity['total_sales_packages'] ?></strong>
+                                        </td>
+                                        <td data-label="Jual (Western)"><?= $activity['paket_western_sales'] ?></td>
+                                        <td data-label="Jual (Nusantara)"><?= $activity['paket_nusantara_sales'] ?></td>
+                                        <td data-label="Jual (Kids Meal)"><?= $activity['paket_kids_meal_sales'] ?></td>
+                                        <td data-label="Jual (Royale)"><?= $activity['paket_royale_sales'] ?></td>
+                                        
+                                        <td data-label="Total Masak">
+                                            <strong><?= $activity['total_prep_packages'] ?></strong>
+                                        </td>
+                                        <td data-label="Masak (Western)"><?= $activity['paket_western_prep'] ?></td>
+                                        <td data-label="Masak (Nusantara)"><?= $activity['paket_nusantara_prep'] ?></td>
+                                        <td data-label="Masak (Kids Meal)"><?= $activity['paket_kids_meal_prep'] ?></td>
+                                        <td data-label="Masak (Royale)"><?= $activity['paket_royale_prep'] ?></td>
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -328,22 +405,5 @@ if (isset($_GET['export']) && $_GET['export'] == 'spreadsheet') {
     </div>
 
     <script src="script.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Animasi untuk kartu ringkasan
-            const summaryCards = document.querySelectorAll('.summary-card');
-            summaryCards.forEach((card, index) => {
-                card.style.animationDelay = `${index * 0.1}s`;
-                card.classList.add('fade-in');
-            });
-
-            // Animasi untuk baris tabel
-            const tableRows = document.querySelectorAll('.activities-table-improved tbody tr');
-            tableRows.forEach((row, index) => {
-                row.style.animationDelay = `${(summaryCards.length * 0.1) + (index * 0.05)}s`; // Sedikit tunda setelah kartu
-                row.classList.add('fade-in');
-            });
-        });
-    </script>
 </body>
 </html>

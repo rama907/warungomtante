@@ -48,7 +48,7 @@ $resignation_rejected = count(array_filter($resignation_requests, fn($r) => $r['
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Semua Permohonan - Warung Om Tante</title>
+    <title>Semua Permohonan - Warung Om Tante V2</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -64,7 +64,7 @@ $resignation_rejected = count(array_filter($resignation_requests, fn($r) => $r['
                     <span class="page-icon">📋</span>
                     Semua Permohonan
                 </h1>
-                <p>Daftar semua permohonan cuti dan resign dari seluruh anggota</p>
+                <p>Daftar semua permohonan izin dan resign dari seluruh anggota</p>
             </div>
 
             <!-- Statistics Cards -->
@@ -72,7 +72,7 @@ $resignation_rejected = count(array_filter($resignation_requests, fn($r) => $r['
                 <div class="stat-card-requests">
                     <div class="stat-icon-requests leave-icon">📝</div>
                     <div class="stat-content-requests">
-                        <h3>Permohonan Cuti</h3>
+                        <h3>Permohonan Izin</h3>
                         <div class="stat-numbers">
                             <span class="stat-total"><?= count($leave_requests) ?></span>
                             <div class="stat-breakdown">
@@ -103,7 +103,7 @@ $resignation_rejected = count(array_filter($resignation_requests, fn($r) => $r['
             <!-- Tabs for switching between request types -->
             <div class="all-requests-tabs">
                 <button class="tab-button active" onclick="switchTab('leave')">
-                    📝 Permohonan Cuti (<?= count($leave_requests) ?>)
+                    📝 Permohonan Izin (<?= count($leave_requests) ?>)
                 </button>
                 <button class="tab-button" onclick="switchTab('resignation')">
                     📄 Permohonan Resign (<?= count($resignation_requests) ?>)
@@ -114,7 +114,7 @@ $resignation_rejected = count(array_filter($resignation_requests, fn($r) => $r['
             <div id="leave-tab" class="tab-content active">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Daftar Permohonan Cuti</h3>
+                        <h3>Daftar Permohonan Izin</h3>
                         <div class="filter-controls">
                             <select id="leave-status-filter" class="form-select-small" onchange="filterRequests('leave')">
                                 <option value="all">Semua Status</option>
@@ -126,7 +126,7 @@ $resignation_rejected = count(array_filter($resignation_requests, fn($r) => $r['
                     </div>
                     <div class="card-content">
                         <?php if (empty($leave_requests)): ?>
-                            <div class="no-data">Belum ada permohonan cuti</div>
+                            <div class="no-data">Belum ada permohonan izin</div>
                         <?php else: ?>
                             <div class="all-requests-list" id="leave-requests-list">
                                 <?php foreach ($leave_requests as $request): ?>
@@ -159,7 +159,7 @@ $resignation_rejected = count(array_filter($resignation_requests, fn($r) => $r['
                                     
                                     <div class="request-details-all">
                                         <div class="request-dates-all">
-                                            <span class="date-label">📅 Periode Cuti:</span>
+                                            <span class="date-label">📅 Periode Izin:</span>
                                             <span class="date-value">
                                                 <?= date('d/m/Y', strtotime($request['start_date'])) ?> - 
                                                 <?= date('d/m/Y', strtotime($request['end_date'])) ?>

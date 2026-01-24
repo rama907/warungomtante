@@ -1,4 +1,4 @@
-// Modern JavaScript for Warung Om Tante Management System
+// Modern JavaScript for Galaxy Night Club Management System
 
 // Theme Management
 function initTheme() {
@@ -27,6 +27,7 @@ function updateThemeIcon(theme) {
 function initSidebar() {
   const sidebar = document.querySelector(".sidebar")
   const toggleBtn = document.querySelector(".sidebar-toggle")
+  const mainContent = document.querySelector(".main-content") // Select the main content
 
   // Create overlay for mobile if it doesn't exist
   let overlay = document.querySelector(".sidebar-overlay")
@@ -37,16 +38,11 @@ function initSidebar() {
   }
 
   if (toggleBtn) {
-    // Remove any existing event listeners
-    toggleBtn.replaceWith(toggleBtn.cloneNode(true))
-    const newToggleBtn = document.querySelector(".sidebar-toggle")
-
-    // Add click event listener
-    newToggleBtn.addEventListener("click", (e) => {
+    toggleBtn.addEventListener("click", (e) => {
       e.preventDefault()
       e.stopPropagation()
       window.toggleSidebar()
-    })
+    });
   }
 
   // Close sidebar when clicking overlay
@@ -93,8 +89,9 @@ window.toggleSidebar = () => {
   const sidebar = document.querySelector(".sidebar")
   const overlay = document.querySelector(".sidebar-overlay")
   const body = document.body
+  const mainContent = document.querySelector(".main-content")
 
-  if (sidebar && overlay) {
+  if (sidebar && overlay && mainContent) {
     const isOpen = sidebar.classList.contains("open")
 
     if (isOpen) {
@@ -103,12 +100,14 @@ window.toggleSidebar = () => {
       overlay.classList.remove("active")
       body.classList.remove("sidebar-open")
       body.style.overflow = ""
+      mainContent.classList.remove("sidebar-closed")
     } else {
       // Open sidebar
       sidebar.classList.add("open")
       overlay.classList.add("active")
       body.classList.add("sidebar-open")
       body.style.overflow = "hidden"
+      mainContent.classList.add("sidebar-closed")
     }
   }
 }
@@ -117,12 +116,14 @@ function openSidebar() {
   const sidebar = document.querySelector(".sidebar")
   const overlay = document.querySelector(".sidebar-overlay")
   const body = document.body
+  const mainContent = document.querySelector(".main-content")
 
-  if (sidebar && overlay) {
+  if (sidebar && overlay && mainContent) {
     sidebar.classList.add("open")
     overlay.classList.add("active")
     body.classList.add("sidebar-open")
     body.style.overflow = "hidden"
+    mainContent.classList.add("sidebar-closed")
   }
 }
 
@@ -130,32 +131,35 @@ function closeSidebar() {
   const sidebar = document.querySelector(".sidebar")
   const overlay = document.querySelector(".sidebar-overlay")
   const body = document.body
+  const mainContent = document.querySelector(".main-content")
 
-  if (sidebar && overlay) {
+  if (sidebar && overlay && mainContent) {
     sidebar.classList.remove("open")
     overlay.classList.remove("active")
     body.classList.remove("sidebar-open")
     body.style.overflow = ""
+    mainContent.classList.remove("sidebar-closed")
   }
 }
 
-// FIXED: Enhanced Password Toggle Functionality
-function togglePassword() {
-  const passwordInput = document.getElementById("password")
-  const toggleIcon = document.getElementById("passwordToggleIcon")
-  const toggleButton = document.querySelector(".password-toggle")
+// New universal password toggle function
+function togglePassword(event) {
+  const button = event.currentTarget;
+  const targetId = button.getAttribute('data-target');
+  const targetInput = document.getElementById(targetId);
 
-  if (passwordInput && toggleIcon && toggleButton) {
-    if (passwordInput.type === "password") {
-      passwordInput.type = "text"
-      toggleIcon.textContent = "🙈"
-      toggleButton.setAttribute("aria-label", "Hide Password")
-      toggleButton.classList.add("active")
+  if (targetInput) {
+    const icon = button.querySelector('.icon');
+    if (targetInput.type === 'password') {
+      targetInput.type = 'text';
+      icon.textContent = '🙈';
+      button.setAttribute('aria-label', 'Sembunyikan Kata Sandi');
+      button.classList.add('active');
     } else {
-      passwordInput.type = "password"
-      toggleIcon.textContent = "👁️"
-      toggleButton.setAttribute("aria-label", "Show Password")
-      toggleButton.classList.remove("active")
+      targetInput.type = 'password';
+      icon.textContent = '👁️';
+      button.setAttribute('aria-label', 'Tampilkan Kata Sandi');
+      button.classList.remove('active');
     }
   }
 }
@@ -221,6 +225,33 @@ function updateDutyClock() {
     }
   })
 }
+
+// New function to update the 'open since' timer on the login page
+function updateOpenSinceTimer() {
+    const openSinceTimer = document.querySelector(".open-since-timer .since-time");
+    const timerContainer = document.querySelector(".open-since-timer");
+    const startTime = timerContainer?.dataset.startTime;
+    
+    if (openSinceTimer && startTime) {
+        const start = new Date(startTime);
+        const now = new Date();
+        const diff = now - start;
+
+        const hours = Math.floor(diff / (1000 * 60 * 60));
+        const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        
+        const formattedDate = start.toLocaleDateString('id-ID', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+        const formattedTime = `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+
+        openSinceTimer.textContent = `${formattedDate} ${formattedTime}`;
+    }
+}
+
 
 // Notification System
 function showNotification(message, type = "info") {
@@ -451,14 +482,15 @@ function addMobileTableLabels() {
 document.addEventListener("DOMContentLoaded", () => {
   initTheme()
   initSidebar()
+  
+  // FIX: Run clock update on page load and every second
+  updateDutyClock();
+  setInterval(updateDutyClock, 1000);
+  
+  // FIX: Run open since timer on login page and every second
+  updateOpenSinceTimer();
+  setInterval(updateOpenSinceTimer, 1000);
 
-  // FIXED: Initialize login page functionality
-  if (document.querySelector(".login-body")) {
-    initLoginPage()
-  }
-
-  // Update duty clocks every second
-  setInterval(updateDutyClock, 1000)
 
   // Initialize auto-save for forms
   const forms = document.querySelectorAll("form[data-autosave]")
@@ -501,6 +533,44 @@ document.addEventListener("DOMContentLoaded", () => {
   initRealTimeUpdates()
   setupStorageSync()
   setupCleanup()
+  
+  // FIX: Attach event listeners to all password toggle buttons
+  document.querySelectorAll('.password-toggle').forEach(button => {
+      button.addEventListener('click', togglePassword);
+      
+      const targetId = button.getAttribute('data-target');
+      if (targetId) {
+          const targetInput = document.getElementById(targetId);
+          if (targetInput) {
+              // Add a listener to enable/disable the toggle button
+              targetInput.addEventListener('input', () => {
+                  if (targetInput.value.length > 0) {
+                      button.classList.add('enabled');
+                  } else {
+                      button.classList.remove('enabled');
+                  }
+              });
+              // Initial state check
+              if (targetInput.value.length > 0) {
+                  button.classList.add('enabled');
+              }
+          }
+      }
+  });
+
+  // Client-side form validation for change password
+  const changePasswordForm = document.getElementById('changePasswordForm');
+  if (changePasswordForm) {
+      changePasswordForm.addEventListener('submit', function(e) {
+          const newPassword = document.getElementById('new_password').value;
+          const confirmPassword = document.getElementById('confirm_password').value;
+
+          if (newPassword !== confirmPassword) {
+              e.preventDefault();
+              showNotification('Kata sandi baru dan konfirmasi kata sandi tidak cocok!', 'error');
+          }
+      });
+  }
 })
 
 // FIXED: Login page specific functionality
@@ -519,20 +589,43 @@ function initLoginPage() {
         toggleButton.classList.remove("enabled")
         // Reset to password type when empty
         this.type = "password"
-        const toggleIcon = document.getElementById("passwordToggleIcon")
+        const toggleIcon = toggleButton.querySelector(".icon")
         if (toggleIcon) {
           toggleIcon.textContent = "👁️"
         }
         toggleButton.classList.remove("active")
       }
     })
+    
+    toggleButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (passwordInput.value.length > 0) {
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleButton.querySelector('.icon').textContent = '🙈';
+                toggleButton.classList.add('active');
+            } else {
+                passwordInput.type = 'password';
+                toggleButton.querySelector('.icon').textContent = '👁️';
+                toggleButton.classList.remove('active');
+            }
+        }
+    });
 
     // Keyboard shortcut: Ctrl+Shift+P to toggle password
     passwordInput.addEventListener("keydown", function (e) {
       if (e.ctrlKey && e.shiftKey && e.key === "P") {
         e.preventDefault()
         if (this.value.length > 0) {
-          togglePassword()
+          if (passwordInput.type === 'password') {
+            passwordInput.type = 'text';
+            toggleButton.querySelector('.icon').textContent = '🙈';
+            toggleButton.classList.add('active');
+          } else {
+            passwordInput.type = 'password';
+            toggleButton.querySelector('.icon').textContent = '👁️';
+            toggleButton.classList.remove('active');
+          }
         }
       }
     })
@@ -754,7 +847,7 @@ function createActivityRow(activity) {
     <div class="table-cell" data-label="Aktivitas">${activity.activity}</div>
     <div class="table-cell" data-label="Waktu">${formatTime(activity.timestamp)}</div>
     <div class="table-cell" data-label="Status">
-      <span class="status-badge status-${activity.status}">${activity.status}</span>
+      <span class="status-badge status-active">${activity.status}</span>
     </div>
   `
 

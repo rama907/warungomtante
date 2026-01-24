@@ -1,12 +1,20 @@
 <?php
+// File: config.php (Final Version for Discord API - Updated for Royale)
+
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL & ~E_NOTICE);
+
+// --- KONSTANTA BARU UNTUK DISCORD BOT API ---
+// GANTI 'MASUKKAN_KUNCI_RAHASIA_ANDA_DISINI' dengan kunci unik (contoh: aBc123XyZ789)
+define('API_SECRET_KEY', '564d5c059a374f249a79e481bbf9df15'); 
+// -------------------------------------------
+
 // Database configuration
 define('DB_HOST', 'localhost');
-define('DB_USER', 'warungom_db_absensi_omtante');
-define('DB_PASS', 'dWw5rsKaF5q47V9JZHEd');
-define('DB_NAME', 'warungom_db_absensi_omtante');
+define('DB_USER', 'gluofwrr_warungomtantev2');
+define('DB_PASS', '6STtcgJk9JL35Zq3DsBd');
+define('DB_NAME', 'gluofwrr_warungomtantev2');
 
 // Create connection
 $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
@@ -44,20 +52,35 @@ function getCurrentUser() {
     return $stmt->get_result()->fetch_assoc();
 }
 
+// NEW FUNCTION: Get Employee by Discord ID (Digunakan oleh API Bot)
+function getEmployeeByDiscordId($discordId) {
+    global $conn;
+    $stmt = $conn->prepare("SELECT * FROM employees WHERE discord_id = ? AND status = 'active'");
+    if (!$stmt) return false;
+    $stmt->bind_param("s", $discordId);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $result;
+}
+
 // Function to format duration
 function formatDuration($minutes) {
+    if ($minutes < 0) return "0j 0m"; // Tangani durasi negatif
     $hours = floor($minutes / 60);
     $mins = $minutes % 60;
-    return $hours . 'j ' . $mins . 'm';
+    return "{$hours}j {$mins}m";
 }
 
 // Function to get role display name
 function getRoleDisplayName($role) {
     $roles = [
+        'ceo' => 'CEO',
         'direktur' => 'Direktur',
         'wakil_direktur' => 'Wakil Direktur',
         'manager' => 'Manager',
         'chef' => 'Chef',
+        'waiters' => 'Waiters',
         'karyawan' => 'Karyawan',
         'magang' => 'Magang'
     ];
@@ -79,65 +102,238 @@ function getEmployeeNameById($id) {
     return $result['name'] ?? 'Tidak Dikenal';
 }
 
+// Mendapatkan hitungan pending request yang terpisah
+function getPendingRequestCounts() {
+    global $conn;
+    $counts = [
+        'employee_requests' => 0, 
+        'booking_requests' => 0,  
+        'total' => 0
+    ];
+
+    $query = "
+        SELECT 
+            (SELECT COUNT(*) FROM leave_requests WHERE status = 'pending') +
+            (SELECT COUNT(*) FROM resignation_requests WHERE status = 'pending') +
+            (SELECT COUNT(*) FROM manual_duty_requests WHERE status = 'pending') +
+            (SELECT COUNT(*) FROM add_employee_requests WHERE status = 'pending') +
+            (SELECT COUNT(*) FROM password_reset_requests WHERE status = 'pending') as count
+    ";
+    $stmt = $conn->prepare($query);
+    if ($stmt) {
+        $stmt->execute();
+        $counts['employee_requests'] = $stmt->get_result()->fetch_assoc()['count'] ?? 0;
+        $stmt->close();
+    }
+
+    $query = "SELECT COUNT(*) as count FROM room_bookings WHERE booking_status = 'pending_approval'";
+    $stmt = $conn->prepare($query);
+    if ($stmt) {
+        $stmt->execute();
+        $counts['booking_requests'] = $stmt->get_result()->fetch_assoc()['count'] ?? 0;
+        $stmt->close();
+    }
+    
+    $counts['total'] = $counts['employee_requests'] + $counts['booking_requests'];
+    
+    return $counts;
+}
+
+// FUNGSI LAMA: Dipertahankan untuk kompatibilitas, kini mengembalikan total.
+function getPendingRequestCount() {
+    $counts = getPendingRequestCounts();
+    return $counts['total'];
+}
+
+// Fungsi untuk memeriksa apakah seorang karyawan adalah Talent
+function isTalent($employeeId) {
+    global $conn;
+    if (!$employeeId) return false;
+    
+    $stmt = $conn->prepare("SELECT is_talent FROM talent_assignments WHERE employee_id = ? AND is_talent = TRUE");
+    if (!$stmt) return false;
+    $stmt->bind_param("i", $employeeId);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return (bool)$result;
+}
+
+// Fungsi untuk mendapatkan daftar semua Talent aktif
+function getAllActiveTalents() {
+    global $conn;
+    $query = "
+        SELECT e.id, e.name
+        FROM employees e
+        JOIN talent_assignments ta ON e.id = ta.employee_id
+        WHERE e.status = 'active' AND ta.is_talent = TRUE
+        ORDER BY e.name ASC
+    ";
+    $result = $conn->query($query);
+    return $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
+}
+
+// Fungsi untuk mendapatkan total share talent yang terakumulasi
+function getTotalTalentShare($talentName, $statusFilter = 'Pending') {
+    global $conn;
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(talent_share), 0) as total_share FROM sales_table_room WHERE talent_name = ? AND talent_share_status = ?");
+    if (!$stmt) return 0;
+    $stmt->bind_param("ss", $talentName, $statusFilter);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return (int)($result['total_share'] ?? 0);
+}
 
 // Fungsi untuk mengirim notifikasi ke Discord
 function sendDiscordNotification($data, $type = 'info') {
-    // URL Webhook Discord Anda
-    // Webhook pertama (untuk SEMUA notifikasi)
-    $general_webhook_url = 'https://discord.com/api/webhooks/1402014520385212577/my5MJe5VIHHA9K6RX5TAYal9vHG4VUUlKHiy4qFGHSaXhnns1ixnCXI9qxBIBa41vpbi';
+    // --- 1. Konfigurasi Webhook & Bot Khusus ---
+    
+    // Webhook 1: Pusat Notifikasi (Umum, Clock Event, Admin System Action)
+    $general_webhook_url = 'https://discord.com/api/webhooks/1464181443461779560/jTVW66L0o6m_ZhnEok7Zn2ajPS5S9_bOQrPnhI4jL9odUS5xzcxar9QHbvzIqS3Wgmus';
+    $general_bot_name = "Warung Om Tante V2 Bot";
 
-    // Webhook kedua (KHUSUS untuk pengajuan dan pembaruan status permohonan)
-    // GANTI DENGAN URL WEBHOOK KEDUA ANDA DI SINI
-    $request_webhook_url = 'https://discord.com/api/webhooks/1402014726195511548/IO3d24hho1AyxSLnTaYpCYk9Q5j_IFpt9HLPMLzA5d4CJBeKdVPjIo0H0F65cFh_aSwV'; // <--- PASTIKAN INI DIGANTI!
+    // Webhook 2: Permohonan & Surat Menyurat (Leave, Resign, Manual Duty, Booking, dll)
+    $request_webhook_url = 'https://discord.com/api/webhooks/1464181627889647761/esbsFAfOad3qb2Q77opb95rX0Kc0ApJZfhAYgk6_b82ETKhLND4A5WCGwNHd9jVAyEZM'; 
+    $request_bot_name = "Warung Om Tante V2 Request Bot";
 
-    $webhooks_to_send = [$general_webhook_url]; // Default: selalu kirim ke webhook umum
+    // Webhook 3: Stok Kulkas
+    $refrigerator_webhook_url = 'https://discord.com/api/webhooks/1464182063837216965/GZAmNlHUgmY2Ht7PNXZQEvJXh8oUCFrJGombt4H9w90iiUNMwHne9esMthu33w2Tv1zZ';
+    $refrigerator_bot_name = "Warung Om Tante V2 Kulkas Bot";
 
-    // Jika tipe notifikasi adalah pengajuan cuti/resign, atau pembaruan status permohonan, tambahkan webhook kedua
-    if (in_array($type, ['leave_request_submitted', 'resignation_request_submitted', 'manual_duty_request_submitted', 'request_status_update', 'warning_letter_issued', 'warning_letter_deleted'])) {
-        // Pastikan URL webhook kedua telah diatur dan bukan placeholder
-        if (!empty($request_webhook_url) && $request_webhook_url !== 'https://discord.com/api/webhooks/YOUR_SECOND_WEBHOOK_URL_HERE') {
-            $webhooks_to_send[] = $request_webhook_url;
+    // Webhook 4: Stok Gudang
+    $warehouse_webhook_url = 'https://discord.com/api/webhooks/1464182173014949973/I4DU_TEkiSqOOKMmE2Hk4JcsNZAQJDb_JfQsPTtrpjD3-qdBwyCMKoKN8S8FZ2h_nFBx';
+    $warehouse_bot_name = "Warung Om Tante V2 Gudang Bot";
+    
+    // Webhook 5: Penjualan
+    $sales_webhook_url = 'https://discord.com/api/webhooks/1464181876196376658/6rcKPPPH57XmwsSA1rsXMlCsbOn-8NRG1lCfb7vgLM12qj_eCJMisIN-Bf_DM4v48o7o'; 
+    $sales_bot_name = "Warung Om Tante V2 Sales Bot";
+    
+    // Webhook 6: Laporan Rekap Absensi
+    $report_webhook_url = 'https://discord.com/api/webhooks/1464182585704972402/o0h3IZ4d2lmyQzyJBkncy9qtK9CEcNxVrZSxBjtigX7TQxJPYo_URnK4HUvvfNc8FeV5'; 
+    $report_bot_name = "Warung Om Tante V2 Report Bot";
+
+    // Webhook 7: Rekap Jam Duty
+    $duty_recap_webhook_url = 'https://discord.com/api/webhooks/1464182707184468011/BcR8AV6CuHupnEvZAykzijQrBhwYxbYfLhegYDM0voFmw7-mrtW5g5zcOKwRtn1B9aut'; 
+    $duty_recap_bot_name = "Warung Om Tante V2 Duty Recap Bot";
+
+    // Webhook 8: Gaji/Payroll
+    $salary_webhook_url = 'https://discord.com/api/webhooks/1464182468000219217/IVLVztUuRfgn1BB3iepjPubJnzBHl_g8BDK1JNNxxyX9B4NAGTLDGtQUKGkwgtwkUXNr'; 
+    $salary_bot_name = "Warung Om Tante V2 Payroll Bot"; 
+    // =====================================
+
+    // --- 2. Tentukan Webhook & Bot yang Digunakan ---
+    $webhooks_to_send = [];
+    $username = $general_bot_name; 
+    $avatar_url = "https://i.imghippo.com/files/wOD3910FQ.png"; 
+
+    $request_types = [
+        'leave_request_submitted', 'resignation_request_submitted', 'manual_duty_request_submitted', 
+        'request_status_update', 'warning_letter_issued', 'warning_letter_deleted', 
+        'new_employee_request_submitted', 'password_reset_request_submitted',
+        'room_booking_submitted', 'booking_status_updated', 'payment_status_updated',
+        'duty_log_deleted'
+    ];
+    $sales_types = ['sale_input', 'sale_deleted']; 
+    $recap_types = ['daily_absent_recap', 'daily_duty_recap']; 
+
+    $refrigerator_types = ['refrigerator_deposit', 'refrigerator_withdraw'];
+    $warehouse_types = ['warehouse_deposit', 'warehouse_withdraw'];
+    $salary_types = ['salary_paid_single', 'salary_unpaid_single', 'salary_unpaid_all']; 
+    $general_types = ['clock_event', 'admin_employee_action', 'admin_system_action'];
+
+    // Routing Logic
+    if (in_array($type, $refrigerator_types)) {
+        if (strpos($refrigerator_webhook_url, 'WEBHOOK_URL_HERE') === false) { $webhooks_to_send[] = $refrigerator_webhook_url; }
+        $username = $refrigerator_bot_name;
+    } elseif (in_array($type, $warehouse_types)) {
+        if (strpos($warehouse_webhook_url, 'WEBHOOK_URL_HERE') === false) { $webhooks_to_send[] = $warehouse_webhook_url; }
+        $username = $warehouse_bot_name;
+    } elseif (in_array($type, $sales_types)) {
+        if (strpos($sales_webhook_url, 'placeholder_sales_webhook') === false) { $webhooks_to_send[] = $sales_webhook_url; }
+        $username = $sales_bot_name;
+    } elseif (in_array($type, $salary_types)) { 
+        if (strpos($salary_webhook_url, 'SALARY_WEBHOOK_ID') === false) { $webhooks_to_send[] = $salary_webhook_url; }
+        $username = $salary_bot_name;
+    } elseif (in_array($type, $recap_types)) {
+         if ($type === 'daily_duty_recap') {
+            if (strpos($duty_recap_webhook_url, 'placeholder_duty_recap') === false) { $webhooks_to_send[] = $duty_recap_webhook_url; }
+            $username = $duty_recap_bot_name;
         } else {
-            error_log("Peringatan: URL webhook khusus permohonan tidak dikonfigurasi. Notifikasi permohonan hanya dikirim ke webhook umum.");
+            if (strpos($report_webhook_url, 'placeholder_report_webhook') === false) { $webhooks_to_send[] = $report_webhook_url; }
+            $username = $report_bot_name;
         }
+    } elseif (in_array($type, $request_types)) {
+        if (strpos($request_webhook_url, 'WEBHOOK_URL_HERE') === false) { $webhooks_to_send[] = $request_webhook_url; }
+        $username = $request_bot_name;
+    } else {
+        $webhooks_to_send[] = $general_webhook_url;
     }
 
-    $username = "Warung Om Tante Bot";
-    $avatar_url = ""; // GANTI DENGAN URL AVATAR BOT ANDA, misal logo warung
+    // --- Critical Fallback Check ---
+    if (empty($webhooks_to_send) || (count($webhooks_to_send) === 1 && strpos($webhooks_to_send[0], 'WEBHOOK_URL_HERE') !== false) || (count($webhooks_to_send) === 1 && strpos($webhooks_to_send[0], 'placeholder') !== false) || (count($webhooks_to_send) === 1 && strpos($webhooks_to_send[0], 'SALARY_WEBHOOK_ID') !== false)) {
+         $webhooks_to_send = [$general_webhook_url];
+         $username = $general_bot_name;
+    }
 
     // Definisikan warna untuk setiap tipe notifikasi
     $colors = [
-        'info' => 3447003,    // Biru (contoh: Clock In/Out)
-        'success' => 3066993, // Hijau (contoh: Disetujui)
-        'warning' => 16776960,// Kuning (contoh: Permohonan Cuti)
-        'danger' => 15158332, // Merah (contoh: Permohonan Resign, Ditolak)
-        'employee_action' => 5793266, // Ungu (contoh: Perubahan Peran, Nonaktif Anggota)
-        'sale_input' => 10038562, // Ungu muda/pink (contoh: Input Penjualan)
-        'sale_deleted' => 15548997, // Merah terang (contoh: Penghapusan penjualan)
-        'salary_paid_single' => 3066993, // Hijau untuk gaji dibayar
-        'salary_unpaid_single' => 16776960, // Kuning untuk gaji dibatalkan
-        'salary_unpaid_all' => 16750899, // Orange/Merah untuk reset semua gaji
-        'warning_letter_issued' => 16750899, // Orange untuk SP
-        'warning_letter_deleted' => 15158332, // Merah untuk hapus SP
+        'info' => 3447003,    
+        'success' => 3066993, 
+        'warning' => 16776960,
+        'danger' => 15158332, 
+        'employee_action' => 5793266, 
+        'sale_input' => 3066993, 
+        'sale_deleted' => 15548997, 
+        'salary_paid_single' => 3066993, 
+        'salary_unpaid_single' => 16776960, 
+        'salary_unpaid_all' => 16750899,
+        'warning_letter_issued' => 16750899, 
+        'warning_letter_deleted' => 15158332, 
+        'new_employee_request_submitted' => 3447003,
+        'password_reset_request_submitted' => 16776960,
+        'refrigerator_deposit' => 3066993, 
+        'refrigerator_withdraw' => 15158332,
+        'warehouse_deposit' => 3066993,
+        'warehouse_withdraw' => 15158332,
+        'daily_absent_recap' => 15158332, 
+        'daily_duty_recap' => 3447003,
     ];
-    $color = $colors[$type] ?? 0; // Ambil warna berdasarkan tipe, default hitam
+    $color = $colors[$type] ?? 0; 
 
     // Inisialisasi embed dasar
     $embed = [
         'title' => '',
         'description' => '',
         'color' => $color,
-        'timestamp' => date('c'), // Waktu saat notifikasi dikirim
+        'timestamp' => date('c'), 
         'footer' => [
-            'text' => 'Warung Om Tante Management System',
+            'text' => 'Warung Om Tante V2 Management System', 
         ],
     ];
+    
+    // FIX PENTING: Perbaikan fungsi rekursif untuk HTML decoding
+    $decode = function($str) use (&$decode) {
+        if (is_array($str)) {
+            // Menggunakan array_map rekursif (dipanggil melalui $decode)
+            $new_array = [];
+            foreach ($str as $key => $value) {
+                $new_array[$key] = $decode($value);
+            }
+            return $new_array;
+        }
+        // Hanya decode jika itu string
+        return is_string($str) ? htmlspecialchars_decode($str, ENT_QUOTES) : $str;
+    };
+    
+    // Mengaplikasikan decoding ke seluruh data
+    $decoded_data = $decode($data);
 
     // Logika untuk mengisi embed berdasarkan 'type' dan 'data'
     switch ($type) {
-        case 'clock_event': // Data: ['employee_name', 'event_type', 'duration']
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            if (($data['event_type'] ?? '') === 'clock_in') {
+        case 'clock_event': 
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
+            if (($decoded_data['event_type'] ?? '') === 'clock_in') {
                 $embed['title'] = "⏰ Karyawan Mulai Bertugas!";
                 $embed['description'] = "**{$employee_name}** telah mulai bertugas.";
                 $embed['color'] = $colors['info'];
@@ -145,100 +341,95 @@ function sendDiscordNotification($data, $type = 'info') {
                     ['name' => 'Waktu Mulai', 'value' => date('H:i:s'), 'inline' => true],
                     ['name' => 'Status', 'value' => '🟢 On Duty', 'inline' => true],
                 ];
-            } elseif (($data['event_type'] ?? '') === 'clock_out') {
+            } elseif (($decoded_data['event_type'] ?? '') === 'clock_out') {
                 $embed['title'] = "⏸️ Karyawan Selesai Bertugas!";
                 $embed['description'] = "Karyawan **{$employee_name}** telah selesai bertugas.";
                 $embed['color'] = $colors['info'];
                 $embed['fields'] = [
                     ['name' => 'Waktu Selesai', 'value' => date('H:i:s'), 'inline' => true],
-                    ['name' => 'Durasi Tugas', 'value' => htmlspecialchars($data['duration'] ?? 'N/A'), 'inline' => true],
+                    ['name' => 'Durasi Tugas', 'value' => $decoded_data['duration'] ?? 'N/A', 'inline' => true],
                     ['name' => 'Status', 'value' => '🔴 Off Duty', 'inline' => true],
                 ];
             }
             break;
 
-        case 'leave_request_submitted': // Data: ['employee_name', 'start_date', 'end_date', 'reason_ooc', 'reason_ic']
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
+        case 'leave_request_submitted': 
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
             $embed['title'] = "📝 Permohonan Cuti Baru!";
             $embed['description'] = "Karyawan **{$employee_name}** telah mengajukan permohonan cuti.";
             $embed['color'] = $colors['warning'];
             $embed['fields'] = [
-                ['name' => 'Periode Cuti', 'value' => date('d/m/Y', strtotime($data['start_date'] ?? '')) . ' - ' . date('d/m/Y', strtotime($data['end_date'] ?? '')), 'inline' => true],
+                ['name' => 'Periode Cuti', 'value' => date('d/m/Y', strtotime($decoded_data['start_date'] ?? '')) . ' - ' . date('d/m/Y', strtotime($decoded_data['end_date'] ?? '')), 'inline' => true],
                 ['name' => 'Status', 'value' => '🟡 Pending', 'inline' => true],
-                ['name' => 'Alasan (OOC)', 'value' => empty($data['reason_ooc']) ? '-' : htmlspecialchars($data['reason_ooc'])],
-                ['name' => 'Alasan (IC)', 'value' => empty($data['reason_ic']) ? '-' : htmlspecialchars($data['reason_ic'])],
+                ['name' => 'Alasan (OOC)', 'value' => empty($decoded_data['reason_ooc']) ? '-' : $decoded_data['reason_ooc']],
+                ['name' => 'Alasan (IC)', 'value' => empty($decoded_data['reason_ic']) ? '-' : $decoded_data['reason_ic']],
             ];
             break;
         
-        case 'resignation_request_submitted': // Data: ['employee_name', 'resignation_date', 'passport', 'cid', 'reason_ooc', 'reason_ic']
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
+        case 'resignation_request_submitted':
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
             $embed['title'] = "📄 Permohonan Resign Baru!";
             $embed['description'] = "Karyawan **{$employee_name}** telah mengajukan permohonan resign.";
             $embed['color'] = $colors['danger'];
             $embed['fields'] = [
-                ['name' => 'Tanggal Resign', 'value' => date('d/m/Y', strtotime($data['resignation_date'] ?? '')), 'inline' => true],
+                ['name' => 'Tanggal Resign', 'value' => date('d/m/Y', strtotime($decoded_data['resignation_date'] ?? '')), 'inline' => true],
                 ['name' => 'Status', 'value' => '🟡 Pending', 'inline' => true],
-                ['name' => 'Passport', 'value' => htmlspecialchars($data['passport'] ?? 'N/A'), 'inline' => true],
-                ['name' => 'CID', 'value' => htmlspecialchars($data['cid'] ?? 'N/A'), 'inline' => true],
-                ['name' => 'Alasan (OOC)', 'value' => empty($data['reason_ooc']) ? '-' : htmlspecialchars($data['reason_ooc'])],
-                ['name' => 'Alasan (IC)', 'value' => empty($data['reason_ic']) ? '-' : htmlspecialchars($data['reason_ic'])],
+                ['name' => 'Passport', 'value' => $decoded_data['passport'] ?? 'N/A', 'inline' => true],
+                ['name' => 'CID', 'value' => $decoded_data['cid'] ?? 'N/A', 'inline' => true],
+                ['name' => 'Alasan (OOC)', 'value' => empty($decoded_data['reason_ooc']) ? '-' : $decoded_data['reason_ooc']],
+                ['name' => 'Alasan (IC)', 'value' => empty($decoded_data['reason_ic']) ? '-' : $decoded_data['reason_ic']],
             ];
             break;
 
-        case 'manual_duty_request_submitted': // Data: ['employee_name', 'duty_date', 'start_time', 'end_time', 'duration_text', 'reason']
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
+        case 'manual_duty_request_submitted':
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
             $embed['title'] = "⏱️ Permohonan Input Jam Manual Baru!";
             $embed['description'] = "Karyawan **{$employee_name}** telah mengajukan permohonan input jam manual.";
             $embed['color'] = $colors['info'];
             $embed['fields'] = [
-                ['name' => 'Tanggal', 'value' => date('d/m/Y', strtotime($data['duty_date'] ?? '')), 'inline' => true],
-                ['name' => 'Periode Waktu', 'value' => date('H:i', strtotime($data['start_time'] ?? '')) . ' - ' . date('H:i', strtotime($data['end_time'] ?? '')), 'inline' => true],
-                ['name' => 'Durasi', 'value' => htmlspecialchars($data['duration_text'] ?? 'N/A'), 'inline' => true],
+                ['name' => 'Tanggal', 'value' => date('d/m/Y', strtotime($decoded_data['duty_date'] ?? '')), 'inline' => true],
+                ['name' => 'Periode Waktu', 'value' => date('H:i', strtotime($decoded_data['start_time'] ?? '')) . ' - ' . date('H:i', strtotime($decoded_data['end_time'] ?? '')), 'inline' => true],
+                ['name' => 'Durasi', 'value' => $decoded_data['duration_text'] ?? 'N/A', 'inline' => true],
                 ['name' => 'Status', 'value' => '🟡 Pending', 'inline' => true],
-                ['name' => 'Alasan', 'value' => empty($data['reason']) ? '-' : htmlspecialchars($data['reason'])],
+                ['name' => 'Alasan', 'value' => empty($decoded_data['reason']) ? '-' : $decoded_data['reason']],
             ];
             break;
 
-        case 'request_status_update': // Data: ['employee_name', 'request_type', 'status', 'approved_by_name', 'duration']
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $approver_name = htmlspecialchars($data['approved_by_name'] ?? 'N/A');
+        case 'request_status_update':
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
+            $approver_name = $decoded_data['approved_by_name'] ?? 'N/A';
             $status_text = '';
             $icon = '';
             $color_status = $colors['info'];
-            $additional_field = [];
 
-            if (($data['status'] ?? '') === 'approved') {
+            if (($decoded_data['status'] ?? '') === 'approved') {
                 $status_text = 'Disetujui';
                 $icon = '✅';
                 $color_status = $colors['success'];
-            } elseif (($data['status'] ?? '') === 'rejected') {
+            } elseif (($decoded_data['status'] ?? '') === 'rejected') {
                 $status_text = 'Ditolak';
                 $icon = '❌';
                 $color_status = $colors['danger'];
             }
             
-            $embed['title'] = "{$icon} Permohonan " . htmlspecialchars($data['request_type'] ?? 'N/A') . " Diperbarui!";
-            $embed['description'] = "Permohonan **" . htmlspecialchars($data['request_type'] ?? 'N/A') . "** dari **{$employee_name}** telah **{$status_text}** oleh **{$approver_name}**.";
+            $embed['title'] = "{$icon} Permohonan " . htmlspecialchars($decoded_data['request_type'] ?? 'N/A') . " Diperbarui!";
+            $embed['description'] = "Permohonan **" . htmlspecialchars($decoded_data['request_type'] ?? 'N/A') . "** dari **{$employee_name}** telah **{$status_text}** oleh **{$approver_name}**.";
             $embed['color'] = $color_status;
             $embed['fields'] = [
                 ['name' => 'Karyawan', 'value' => $employee_name, 'inline' => true],
                 ['name' => 'Status', 'value' => "{$icon} {$status_text}", 'inline' => true],
                 ['name' => 'Diproses Oleh', 'value' => $approver_name, 'inline' => true],
             ];
-
-            if (($data['request_type'] ?? '') === 'Input Jam Manual' && ($data['status'] ?? '') === 'approved' && !empty($data['duration'])) {
-                $embed['fields'][] = ['name' => 'Durasi Jam Manual', 'value' => htmlspecialchars($data['duration'] ?? 'N/A'), 'inline' => true];
-            }
             break;
 
-        case 'admin_employee_action': // Data: ['action_type', 'target_employee_name', 'old_value', 'new_value', 'admin_name', 'role']
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
-            $target_name = htmlspecialchars($data['target_employee_name'] ?? 'N/A');
+        case 'admin_employee_action':
+            $admin_name = $decode($decoded_data['admin_name'] ?? 'N/A');
+            $target_name = $decoded_data['target_employee_name'] ?? 'N/A';
             $embed['color'] = $colors['employee_action'];
             
-            if (($data['action_type'] ?? '') === 'update_role') {
-                $old_role_display = getRoleDisplayName($data['old_value'] ?? 'N/A');
-                $new_role_display = getRoleDisplayName($data['new_value'] ?? 'N/A');
+            if (($decoded_data['action_type'] ?? '') === 'update_role') {
+                $old_role_display = getRoleDisplayName($decoded_data['old_value'] ?? 'N/A');
+                $new_role_display = getRoleDisplayName($decoded_data['new_value'] ?? 'N/A');
                 $embed['title'] = "👥 Perubahan Jabatan Anggota!";
                 $embed['description'] = "Jabatan **{$target_name}** telah diubah oleh **{$admin_name}**.";
                 $embed['fields'] = [
@@ -246,15 +437,15 @@ function sendDiscordNotification($data, $type = 'info') {
                     ['name' => 'Jabatan Lama', 'value' => $old_role_display, 'inline' => true],
                     ['name' => 'Jabatan Baru', 'value' => $new_role_display, 'inline' => true],
                 ];
-            } elseif (($data['action_type'] ?? '') === 'deactivate_employee') {
+            } elseif (($decoded_data['action_type'] ?? '') === 'deactivate_employee') {
                 $embed['title'] = "⛔ Anggota Dinonaktifkan!";
                 $embed['description'] = "Anggota **{$target_name}** telah dinonaktifkan oleh **{$admin_name}**.";
                 $embed['fields'] = [
                     ['name' => 'Anggota', 'value' => $target_name, 'inline' => true],
                     ['name' => 'Status', 'value' => '🔴 Tidak Aktif', 'inline' => true],
                 ];
-            } elseif (($data['action_type'] ?? '') === 'add_employee') {
-                $role_display = getRoleDisplayName($data['role'] ?? 'N/A');
+            } elseif (($decoded_data['action_type'] ?? '') === 'add_employee') {
+                $role_display = getRoleDisplayName($decoded_data['role'] ?? 'N/A');
                 $embed['title'] = "➕ Anggota Baru Ditambahkan!";
                 $embed['description'] = "Anggota baru **{$target_name}** ({$role_display}) telah ditambahkan oleh **{$admin_name}**.";
                 $embed['fields'] = [
@@ -264,58 +455,62 @@ function sendDiscordNotification($data, $type = 'info') {
                 ];
             }
             break;
-        
-        case 'admin_system_action': // Data: ['action_type', 'admin_name']
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
+
+        case 'admin_system_action':
+            $admin_name = $decode($decoded_data['admin_name'] ?? 'N/A');
             $embed['color'] = $colors['employee_action'];
-            if (($data['action_type'] ?? '') === 'reset_weekly_data') {
+            
+            if (($decoded_data['action_type'] ?? '') === 'reset_weekly_data') {
                 $embed['title'] = "🔄 Data Mingguan Direset!";
                 $embed['description'] = "Data jam tugas dan penjualan mingguan telah direset oleh **{$admin_name}**.";
             }
             break;
 
-        case 'sale_input': // Data: ['employee_name', 'date', 'input_time', 'paket_makan_minum_warga', 'paket_makan_minum_instansi', 'paket_snack', 'masak_paket', 'masak_snack']
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $paket_warga = $data['paket_makan_minum_warga'] ?? 0;
-            $paket_instansi = $data['paket_makan_minum_instansi'] ?? 0;
-            $paket_snack = $data['paket_snack'] ?? 0;
-            $masak_paket = $data['masak_paket'] ?? 0;
-            $masak_snack = $data['masak_snack'] ?? 0;
+        case 'sale_input':
+            $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
             
-            $total_items_sold = $paket_warga + $paket_instansi + $paket_snack; // Total item penjualan saja
-            $total_items_cooked = $masak_paket + $masak_snack; // Total item masak saja
+            // Mengambil paket-paket baru dari data
+            $western = $decoded_data['paket_western'] ?? 0; 
+            $nusantara = $decoded_data['paket_nusantara'] ?? 0;
+            $kids_meal = $decoded_data['paket_kids_meal'] ?? 0;
+            // UPDATE: Menambahkan Paket Royale
+            $royale = $decoded_data['paket_vip_person'] ?? ($decoded_data['paket_royale'] ?? 0);
 
-            $embed['title'] = "💰 Data Penjualan Baru Diinput!";
-            $embed['description'] = "**{$employee_name}** telah menginput data penjualan.";
+            
+            // Menghitung total item yang terjual
+            $total_items_sold = $western + $nusantara + $kids_meal + $royale; 
+
+            $embed['title'] = "💰 Data Penjualan Baru Diinput! (Total: {$total_items_sold})";
+            $embed['description'] = "**{$employee_name}** telah menginput data penjualan paket Resto. Detail di bawah:";
             $embed['color'] = $colors['success'];
             $embed['fields'] = [
-                ['name' => 'Tanggal', 'value' => date('d/m/Y', strtotime($data['date'] ?? '')), 'inline' => true],
-                ['name' => 'Waktu Input', 'value' => date('H:i:s', strtotime($data['input_time'] ?? '')), 'inline' => true],
-                ['name' => 'P. M&M Warga', 'value' => $paket_warga, 'inline' => true],
-                ['name' => 'P. M&M Instansi', 'value' => $paket_instansi, 'inline' => true],
-                ['name' => 'Paket Snack', 'value' => $paket_snack, 'inline' => true],
+                ['name' => 'Tanggal', 'value' => date('d/m/Y', strtotime($decoded_data['date'] ?? '')), 'inline' => true],
+                ['name' => 'Waktu Input', 'value' => date('H:i:s', strtotime($decoded_data['input_time'] ?? '')), 'inline' => true],
             ];
-            if ($masak_paket > 0 || $masak_snack > 0) { // Tambahkan field masak hanya jika ada
-                $embed['fields'][] = ['name' => 'Masak Paket', 'value' => $masak_paket, 'inline' => true];
-                $embed['fields'][] = ['name' => 'Masak Snack', 'value' => $masak_snack, 'inline' => true];
-            }
-            $embed['fields'][] = ['name' => 'Total Paket Terjual', 'value' => $total_items_sold, 'inline' => true];
-            if ($total_items_cooked > 0) {
-                $embed['fields'][] = ['name' => 'Total Masak', 'value' => $total_items_cooked, 'inline' => true];
-            }
+
+            // Menampilkan paket-paket yang terjual
+            if ($western > 0) $embed['fields'][] = ['name' => 'Paket Western', 'value' => $western, 'inline' => true];
+            if ($nusantara > 0) $embed['fields'][] = ['name' => 'Paket Nusantara', 'value' => $nusantara, 'inline' => true];
+            if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Paket Kids Meal', 'value' => $kids_meal, 'inline' => true];
+            if ($royale > 0) $embed['fields'][] = ['name' => 'Paket Royale', 'value' => $royale, 'inline' => true]; // UPDATE
+            
+            // Memastikan fields lama yang tidak digunakan tetap kosong agar bot tidak error
+            $embed['fields'][] = ['name' => '', 'value' => '', 'inline' => false];
+            
             break;
         
-        case 'sale_deleted': // Tipe notifikasi baru untuk penghapusan penjualan
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $sales_date_time = htmlspecialchars($data['sales_date_time'] ?? 'N/A');
-            $paket_warga = $data['paket_makan_minum_warga'] ?? 0;
-            $paket_instansi = $data['paket_makan_minum_instansi'] ?? 0;
-            $paket_snack = $data['paket_snack'] ?? 0;
-            $masak_paket = $data['masak_paket'] ?? 0;
-            $masak_snack = $data['masak_snack'] ?? 0;
+        case 'sale_deleted':
+            $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
+            $sales_date_time = $decode($decoded_data['sales_date_time'] ?? 'N/A');
             
-            $total_items_deleted_sold = $paket_warga + $paket_instansi + $paket_snack;
-            $total_items_deleted_cooked = $masak_paket + $masak_snack;
+            // Kolom yang dihapus (menggunakan kolom DB lama)
+            $western = $decoded_data['paket_sake'] ?? 0; 
+            $nusantara = $decoded_data['paket_anggur_merah'] ?? 0;
+            $kids_meal = $decoded_data['paket_tuak'] ?? 0;
+            // UPDATE: Menambahkan Royale
+            $royale = $decoded_data['paket_vip_person'] ?? 0;
+            
+            $total_items_deleted = $western + $nusantara + $kids_meal + $royale;
 
             $embed['title'] = "🗑️ Data Penjualan Dihapus!";
             $embed['description'] = "Data penjualan dari **{$employee_name}** pada **{$sales_date_time}** telah dihapus.";
@@ -323,62 +518,134 @@ function sendDiscordNotification($data, $type = 'info') {
             $embed['fields'] = [
                 ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
                 ['name' => 'Waktu Input Asli', 'value' => $sales_date_time, 'inline' => true],
-                ['name' => 'P. M&M Warga', 'value' => $paket_warga, 'inline' => true],
-                ['name' => 'P. M&M Instansi', 'value' => $paket_instansi, 'inline' => true],
-                ['name' => 'Paket Snack', 'value' => $paket_snack, 'inline' => true],
             ];
-            if ($masak_paket > 0 || $masak_snack > 0) { // Tambahkan field masak hanya jika ada
-                $embed['fields'][] = ['name' => 'Masak Paket', 'value' => $masak_paket, 'inline' => true];
-                $embed['fields'][] = ['name' => 'Masak Snack', 'value' => $masak_snack, 'inline' => true];
+            
+            // Detail Paket yang dihapus
+            if ($western > 0) $embed['fields'][] = ['name' => 'Western (Dihapus)', 'value' => $western, 'inline' => true];
+            if ($nusantara > 0) $embed['fields'][] = ['name' => 'Nusantara (Dihapus)', 'value' => $nusantara, 'inline' => true];
+            if ($kids_meal > 0) $embed['fields'][] = ['name' => 'Kids Meal (Dihapus)', 'value' => $kids_meal, 'inline' => true];
+            if ($royale > 0) $embed['fields'][] = ['name' => 'Royale (Dihapus)', 'value' => $royale, 'inline' => true]; // UPDATE
+
+            $embed['fields'][] = ['name' => 'Total Item Dihapus', 'value' => $total_items_deleted, 'inline' => false];
+            break;
+            
+        case 'refrigerator_deposit':
+        case 'refrigerator_withdraw':
+        case 'warehouse_deposit':
+        case 'warehouse_withdraw':
+            $is_deposit = (strpos($type, '_deposit') !== false);
+            $is_refrigerator = (strpos($type, 'refrigerator') !== false);
+            $stock_type_name = $is_refrigerator ? 'Resto (Kulkas)' : 'Gudang'; // Diubah
+            $action_text = $is_deposit ? 'DEPOSIT (Masuk)' : 'WITHDRAW (Keluar)';
+            $icon = $is_deposit ? '➕' : '➖';
+            $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
+            $product_list = $decoded_data['product_list'] ?? [];
+
+            $embed['title'] = "{$icon} Transaksi Stok {$stock_type_name}: {$action_text}!";
+            $embed['description'] = "**{$employee_name}** telah melakukan transaksi stok {$stock_type_name}.";
+            $embed['color'] = $is_deposit ? $colors['success'] : $colors['danger'];
+            
+            $fields = [
+                ['name' => 'Dilakukan Oleh', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Waktu', 'value' => date('H:i:s'), 'inline' => true],
+            ];
+            $detail_list = "";
+            foreach ($product_list as $product => $qty) {
+                // Tambahkan check untuk array yang di-pass saat auto deposit/withdraw
+                if (is_string($product) && !is_array($qty)) {
+                     $detail_list .= "- " . str_replace('_', ' ', $product) . " (`{$qty}`)\n";
+                }
             }
-            $embed['fields'][] = ['name' => 'Total Paket Dihapus', 'value' => $total_items_deleted_sold, 'inline' => true];
-            if ($total_items_deleted_cooked > 0) {
-                $embed['fields'][] = ['name' => 'Total Masak Dihapus', 'value' => $total_items_deleted_cooked, 'inline' => true];
+            $fields[] = ['name' => 'Detail Item:', 'value' => trim($detail_list)];
+
+            $embed['fields'] = $fields;
+            break;
+
+        case 'room_booking_submitted':
+            $room_id = $decoded_data['room_id'] ?? 'N/A';
+            $booking_name = $decoded_data['booking_name'] ?? 'N/A';
+            $booking_datetime = $decoded_data['booking_datetime'] ?? 'N/A';
+            $embed['title'] = "🛎️ Permintaan Booking Ruangan Baru!";
+            $embed['description'] = "Permintaan booking ruangan baru telah diajukan oleh **{$booking_name}**.";
+            $embed['color'] = $colors['info'];
+            $embed['fields'] = [
+                ['name' => 'Ruangan', 'value' => $room_id, 'inline' => true],
+                ['name' => 'Nama Pemesan', 'value' => $booking_name, 'inline' => true],
+                ['name' => 'Tanggal & Waktu', 'value' => date('d/m/Y H:i', strtotime($booking_datetime)), 'inline' => false],
+            ];
+            break;
+
+        case 'booking_status_updated':
+            $room_name = $decoded_data['room_name'] ?? 'N/A';
+            $booking_name = $decoded_data['booking_name'] ?? 'N/A';
+            $admin_name = $decoded_data['admin_name'] ?? 'N/A';
+            $action = $decoded_data['action'] ?? 'N/A';
+
+            $status_text = '';
+            $icon = '';
+            $color = $colors['info'];
+
+            if ($action === 'approve_booking') {
+                $status_text = 'disetujui';
+                $icon = '✅';
+                $color = $colors['success'];
+            } elseif ($action === 'decline_booking') {
+                $status_text = 'ditolak';
+                $icon = '❌';
+                $color = $colors['danger'];
+            } elseif ($action === 'mark_as_used') {
+                $status_text = 'selesai digunakan';
+                $status_icon = '✔️';
+                $color = $colors['info'];
             }
-            break;
 
-        case 'salary_paid_single':
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
-            $embed['title'] = "✅ Gaji Dibayar!";
-            $embed['description'] = "Gaji anggota **{$employee_name}** telah ditandai **Sudah Dibayar** oleh **{$admin_name}**.";
-            $embed['color'] = $colors['salary_paid_single'];
+            $embed['title'] = "{$status_icon} Status Booking Diperbarui!";
+            $embed['description'] = "Booking ruangan **{$room_name}** dari **{$booking_name}** telah **{$status_text}** oleh **{$admin_name}**.";
+            $embed['color'] = $color;
             $embed['fields'] = [
-                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
-                ['name' => 'Diproses Oleh', 'value' => $admin_name, 'inline' => true],
-                ['name' => 'Status Pembayaran', 'value' => 'Sudah Dibayar', 'inline' => true],
-            ];
-            break;
-
-        case 'salary_unpaid_single':
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
-            $embed['title'] = "⚠️ Pembayaran Gaji Dibatalkan!";
-            $embed['description'] = "Gaji anggota **{$employee_name}** telah dibatalkan (dikembalikan ke **Belum Dibayar**) oleh **{$admin_name}**.";
-            $embed['color'] = $colors['salary_unpaid_single'];
-            $embed['fields'] = [
-                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
-                ['name' => 'Diproses Oleh', 'value' => $admin_name, 'inline' => true],
-                ['name' => 'Status Pembayaran', 'value' => 'Belum Dibayar', 'inline' => true],
-            ];
-            break;
-
-        case 'salary_unpaid_all':
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
-            $embed['title'] = "🔄 Reset Status Pembayaran Gaji!";
-            $embed['description'] = "Semua status gaji anggota telah direset menjadi **Belum Dibayar** oleh **{$admin_name}**.";
-            $embed['color'] = $colors['salary_unpaid_all'];
-            $embed['fields'] = [
+                ['name' => 'Ruangan', 'value' => $room_name, 'inline' => true],
+                ['name' => 'Pemesan', 'value' => $booking_name, 'inline' => true],
                 ['name' => 'Diproses Oleh', 'value' => $admin_name, 'inline' => true],
             ];
             break;
 
-        case 'duty_log_deleted': // Tipe notifikasi lama, pastikan aman dengan null coalescing
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
-            $duty_start_time = date('d/m/Y H:i', strtotime($data['duty_start'] ?? ''));
-            $duty_end_time = ($data['duty_end'] ?? null) ? date('H:i', strtotime($data['duty_end'])) : 'Belum Selesai';
-            $duration_display = formatDuration($data['duration_minutes'] ?? 0);
+        case 'payment_status_updated':
+            $room_name = $decoded_data['room_name'] ?? 'N/A';
+            $booking_name = $decoded_data['booking_name'] ?? 'N/A';
+            $admin_name = $decoded_data['admin_name'] ?? 'N/A';
+            $action = $decoded_data['action'] ?? 'N/A';
+            
+            $status_text = '';
+            $status_icon = '';
+            $color = $colors['info'];
+            
+            if ($action === 'mark_dp_paid') {
+                $status_text = 'Pembayaran DP telah lunas';
+                $status_icon = '💰';
+                $color = $colors['warning'];
+            } elseif ($action === 'mark_full_paid') {
+                $status_text = 'Pembayaran penuh telah lunas';
+                $status_icon = '✅';
+                $color = $colors['success'];
+            }
+            
+            $embed['title'] = "{$status_icon} Status Pembayaran Booking Diperbarui!";
+            $embed['description'] = "Status pembayaran untuk booking ruangan **{$room_name}** dari **{$booking_name}** telah diperbarui menjadi **{$status_text}** oleh **{$admin_name}**.";
+            $embed['color'] = $color;
+            $embed['fields'] = [
+                ['name' => 'Ruangan', 'value' => $room_name, 'inline' => true],
+                ['name' => 'Pemesan', 'value' => $booking_name, 'inline' => true],
+                ['name' => 'Diproses Oleh', 'value' => $admin_name, 'inline' => true],
+                ['name' => 'Status Terbaru', 'value' => $status_text, 'inline' => false],
+            ];
+            break;
+            
+        case 'duty_log_deleted': 
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
+            $admin_name = $decoded_data['admin_name'] ?? 'N/A';
+            $duty_start_time = date('d/m/Y H:i', strtotime($decoded_data['duty_start'] ?? ''));
+            $duty_end_time = ($decoded_data['duty_end'] ?? null) ? date('H:i', strtotime($decoded_data['duty_end'])) : 'Belum Selesai';
+            $duration_display = formatDuration($decoded_data['duration_minutes'] ?? 0);
 
             $embed['title'] = "🗑️ Log Jam Kerja Dihapus!";
             $embed['description'] = "Log jam kerja anggota **{$employee_name}** telah dihapus oleh **{$admin_name}**.";
@@ -392,9 +659,10 @@ function sendDiscordNotification($data, $type = 'info') {
                 ['name' => 'Saran', 'value' => "Mohon informasikan anggota tersebut untuk mengajukan `Input Jam Manual` jika periode ini perlu dicatat ulang.", 'inline' => false]
             ];
             break;
-        case 'warning_letter_deleted': // Notifikasi baru untuk penghapusan SP
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
+
+        case 'warning_letter_deleted': 
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
+            $admin_name = $decoded_data['admin_name'] ?? 'N/A';
             $embed['title'] = "🗑️ Surat Peringatan Dihapus!";
             $embed['description'] = "Surat Peringatan untuk **{$employee_name}** telah dihapus oleh **{$admin_name}**.";
             $embed['color'] = $colors['danger'];
@@ -403,11 +671,12 @@ function sendDiscordNotification($data, $type = 'info') {
                 ['name' => 'Dihapus Oleh', 'value' => $admin_name, 'inline' => true]
             ];
             break;
-        case 'warning_letter_issued': // Notifikasi baru untuk pemberian SP
-            $employee_name = htmlspecialchars($data['employee_name'] ?? 'N/A');
-            $admin_name = htmlspecialchars($data['admin_name'] ?? 'N/A');
-            $sp_type = htmlspecialchars($data['sp_type'] ?? 'N/A');
-            $reason = htmlspecialchars($data['reason'] ?? 'N/A');
+
+        case 'warning_letter_issued': 
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
+            $admin_name = $decoded_data['admin_name'] ?? 'N/A';
+            $sp_type = $decoded_data['sp_type'] ?? 'N/A';
+            $reason = $decoded_data['reason'] ?? 'N/A';
             $embed['title'] = "⚠️ Surat Peringatan Dikeluarkan!";
             $embed['description'] = "Surat Peringatan **{$sp_type}** untuk **{$employee_name}** telah dikeluarkan oleh **{$admin_name}**.";
             $embed['color'] = $colors['warning'];
@@ -419,10 +688,113 @@ function sendDiscordNotification($data, $type = 'info') {
             ];
             break;
 
+        case 'new_employee_request_submitted':
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
+            $new_employee_name = $decoded_data['new_employee_name'] ?? 'N/A';
+            $requested_role = $decoded_data['requested_role'] ?? 'N/A';
+            $embed['title'] = "➕ Permintaan Anggota Baru!";
+            $embed['description'] = "Permintaan untuk menambahkan anggota baru **{$new_employee_name}** ({$requested_role}) telah diajukan oleh **{$employee_name}**.";
+            $embed['color'] = $colors['info'];
+            $embed['fields'] = [
+                ['name' => 'Diajukan Oleh', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Nama Anggota Baru', 'value' => $new_employee_name, 'inline' => true],
+                ['name' => 'Jabatan', 'value' => getRoleDisplayName($requested_role), 'inline' => true],
+            ];
+            break;
+
+        case 'password_reset_request_submitted':
+            $employee_name = $decoded_data['employee_name'] ?? 'N/A';
+            $target_employee_name = $decoded_data['target_employee_name'] ?? 'N/A';
+            $reset_type_text = ($decoded_data['reset_type'] ?? '') === 'new' ? 'Kata Sandi Baru' : 'Kata Sandi Default';
+            $embed['title'] = "🔄 Permintaan Reset Kata Sandi!";
+            $embed['description'] = "Permintaan reset kata sandi untuk **{$target_employee_name}** telah diajukan oleh **{$employee_name}**.";
+            $embed['color'] = $colors['warning'];
+            $embed['fields'] = [
+                ['name' => 'Diajukan Oleh', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Untuk Anggota', 'value' => $target_employee_name, 'inline' => true],
+                ['name' => 'Tipe Reset', 'value' => $reset_type_text, 'inline' => true],
+            ];
+            break;
+            
+        case 'salary_paid_single':
+        case 'salary_unpaid_single':
+            $employee_name = $decode($decoded_data['employee_name'] ?? 'N/A');
+            $status_text = $decode($decoded_data['status'] ?? 'N/A');
+            $admin_name = $decode($decoded_data['admin_name'] ?? 'N/A');
+            
+            $embed['title'] = "💸 Status Gaji Diperbarui!";
+            $embed['description'] = "Gaji **{$employee_name}** diubah menjadi **{$status_text}** oleh **{$admin_name}**.";
+            $embed['color'] = $type === 'salary_paid_single' ? $colors['success'] : $colors['warning'];
+            $embed['fields'] = [
+                ['name' => 'Anggota', 'value' => $employee_name, 'inline' => true],
+                ['name' => 'Status Baru', 'value' => $status_text, 'inline' => true],
+                ['name' => 'Admin', 'value' => $admin_name, 'inline' => true],
+            ];
+            break;
+            
+        case 'salary_unpaid_all':
+            $admin_name = $decode($decoded_data['admin_name'] ?? 'N/A');
+            $embed['title'] = "⚠️ Reset Gaji Massal!";
+            $embed['description'] = "Semua status pembayaran gaji anggota **Direset** menjadi **Belum Dibayar** oleh **{$admin_name}**.";
+            $embed['color'] = $colors['salary_unpaid_all'];
+            $embed['fields'] = [
+                ['name' => 'Dilakukan Oleh', 'value' => $admin_name, 'inline' => true],
+                ['name' => 'Status Target', 'value' => 'Belum Dibayar', 'inline' => true],
+            ];
+            break;
+            
+        case 'daily_absent_recap':
+            $absent_list = $decoded_data['absent_list'] ?? [];
+            $embed['title'] = "🚨 Rekap Absensi (Absen > 3 Hari Beruntun)";
+            $embed['description'] = "Berikut adalah anggota yang tercatat **Absen** atau **Tanpa Keterangan Izin** lebih dari 3 hari dalam minggu ini:";
+            $embed['color'] = $colors['daily_absent_recap'];
+            
+            if (empty($absent_list)) {
+                $embed['description'] = "Semua anggota tercatat hadir atau memiliki cuti yang disetujui. Pertahankan kinerja baik!";
+                $embed['color'] = $colors['success'];
+            } else {
+                $list_value = "";
+                foreach ($absent_list as $employee_name) {
+                    $list_value .= "- **{$employee_name}**\n";
+                }
+                $embed['fields'][] = [
+                    'name' => 'Daftar Anggota Bermasalah:', 
+                    'value' => trim($list_value), 
+                    'inline' => false
+                ];
+                $embed['fields'][] = [
+                    'name' => 'Tindakan', 
+                    'value' => "Mohon hubungi anggota-anggota di atas untuk mengajukan cuti atau berikan surat peringatan (SP) sesuai kebijakan HR.", 
+                    'inline' => false
+                ];
+            }
+            break;
+            
+        case 'daily_duty_recap':
+            $duty_list = $decoded_data['duty_list'] ?? [];
+            $embed['title'] = "⏱️ Rekap Total Jam Duty Anggota";
+            $embed['description'] = "Berikut adalah total waktu duty semua anggota (diurutkan dari terlama):";
+            $embed['color'] = $colors['daily_duty_recap'];
+
+            if (empty($duty_list)) {
+                $embed['description'] = "Tidak ada anggota yang memiliki jam duty yang telah diselesaikan (*completed*).";
+            } else {
+                $list_value = "";
+                foreach ($duty_list as $item) {
+                    $list_value .= "• **{$item['name']}**: `{$item['duration']}`\n";
+                }
+                $embed['fields'][] = [
+                    'name' => 'Nama Anggota & Total Waktu Duty',
+                    'value' => trim($list_value),
+                    'inline' => false
+                ];
+            }
+            break;
+            
         default:
-            // Fallback untuk pesan yang tidak dikenali atau data sederhana
+            // Fallback for unrecognized messages
             $embed['title'] = "ℹ️ Notifikasi Umum";
-            $embed['description'] = htmlspecialchars(is_array($data) ? json_encode($data) : $data);
+            $embed['description'] = $decode(is_array($data) ? json_encode($data) : $data);
             $embed['color'] = $colors['info'];
             break;
     }
@@ -445,42 +817,6 @@ function sendDiscordNotification($data, $type = 'info') {
     // Kirim notifikasi ke setiap URL webhook yang relevan
     foreach ($webhooks_to_send as $webhook_url) {
         $context = stream_context_create($options);
-        // Gunakan '@' untuk menekan error jika ada URL webhook yang tidak valid atau tidak dikonfigurasi
         @file_get_contents($webhook_url, false, $context);
     }
-}
-
-// Function to get total pending requests
-function getPendingRequestCount() {
-    global $conn;
-    $count = 0;
-
-    // Count pending leave requests
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM leave_requests WHERE status = 'pending'");
-    if ($stmt) {
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        $count += $result['count'];
-        $stmt->close();
-    }
-
-    // Count pending resignation requests
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM resignation_requests WHERE status = 'pending'");
-    if ($stmt) {
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        $count += $result['count'];
-        $stmt->close();
-    }
-    
-    // Count pending manual duty requests
-    $stmt = $conn->prepare("SELECT COUNT(*) as count FROM manual_duty_requests WHERE status = 'pending'");
-    if ($stmt) {
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        $count += $result['count'];
-        $stmt->close();
-    }
-
-    return $count;
 }

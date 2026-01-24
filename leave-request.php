@@ -30,9 +30,9 @@ if ($_POST['action'] ?? '' === 'submit_leave') {
                 'reason_ooc' => $reason_ooc,
                 'reason_ic' => $reason_ic
             ], 'leave_request_submitted');
-            $success = "Permohonan cuti berhasil diajukan!";
+            $success = "Permohonan Izin berhasil diajukan!";
         } else {
-            $error = "Gagal mengajukan permohonan cuti!";
+            $error = "Gagal mengajukan permohonan Izin!";
         }
     } else {
         $error = "Tanggal mulai dan selesai harus diisi!";
@@ -57,7 +57,7 @@ $leave_requests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Permohonan Cuti - Warung Om Tante</title>
+    <title>Permohonan Izin - Elysium Night Club</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -71,9 +71,9 @@ $leave_requests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
             <div class="page-header">
                 <h1>
                     <span class="page-icon">📝</span>
-                    Permohonan Cuti
+                    Permohonan Izin
                 </h1>
-                <p>Ajukan permohonan cuti Anda</p>
+                <p>Ajukan permohonan Izin Anda</p>
             </div>
 
             <?php if (isset($success)): ?>
@@ -87,7 +87,7 @@ $leave_requests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
             <div class="content-grid">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Form Permohonan Cuti</h3>
+                        <h3>Form Permohonan Izin</h3>
                     </div>
                     <div class="card-content">
                         <form method="POST" class="leave-form">
@@ -107,13 +107,13 @@ $leave_requests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
                             <div class="form-group">
                                 <label for="reason_ooc">Alasan OOC (Out of Character)</label>
                                 <textarea name="reason_ooc" id="reason_ooc" rows="3" class="form-textarea" 
-                                          placeholder="Jelaskan alasan OOC untuk cuti..."></textarea>
+                                          placeholder="Jelaskan alasan OOC untuk Izin..."></textarea>
                             </div>
                             
                             <div class="form-group">
                                 <label for="reason_ic">Alasan IC (In Character)</label>
                                 <textarea name="reason_ic" id="reason_ic" rows="3" class="form-textarea" 
-                                          placeholder="Jelaskan alasan IC untuk cuti..."></textarea>
+                                          placeholder="Jelaskan alasan IC untuk Izin..."></textarea>
                             </div>
                             
                             <button type="submit" class="btn btn-primary">Ajukan Permohonan</button>
@@ -123,11 +123,11 @@ $leave_requests = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
                 <div class="card">
                     <div class="card-header">
-                        <h3>Riwayat Permohonan Cuti</h3>
+                        <h3>Riwayat Permohonan Izin</h3>
                     </div>
                     <div class="card-content">
                         <?php if (empty($leave_requests)): ?>
-                            <div class="no-data">Belum ada permohonan cuti</div>
+                            <div class="no-data">Belum ada permohonan Izin</div>
                         <?php else: ?>
                             <div class="requests-list">
                                 <?php foreach ($leave_requests as $request): ?>

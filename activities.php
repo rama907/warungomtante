@@ -24,10 +24,13 @@ if (!function_exists('formatDuration')) {
 if (!function_exists('getRoleDisplayName')) {
     function getRoleDisplayName($role) {
         $roles = [
+            'ceo' => 'CEO',
             'direktur' => 'Direktur',
             'wakil_direktur' => 'Wakil Direktur',
             'manager' => 'Manager',
-            'chef' => 'Chef',
+            'barista' => 'Barista',
+            'waiters' => 'Waiters',
+            'guard' => 'Guard',
             'karyawan' => 'Karyawan',
             'magang' => 'Magang',
             // Tambahkan peran lain jika ada
@@ -39,7 +42,7 @@ if (!function_exists('getRoleDisplayName')) {
 $success_message = null;
 $error_message = null;
 
-// --- Handle Delete Duty Log ---
+// --- Handle Delete Duty Log (Existing Logic) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_duty_log') {
     $duty_log_id = (int)($_POST['duty_log_id'] ?? 0);
     $employee_id_of_log = $user['id']; // ID karyawan yang sedang login
@@ -84,21 +87,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             // Hapus log duty
             $stmt_delete = $conn->prepare("DELETE FROM duty_logs WHERE id = ? AND employee_id = ?");
             if (!$stmt_delete) {
-                // --- KODE DIAGNOSTIK SEMENTARA ---
-                error_log("Error preparing delete statement: " . $conn->error); // Log ke server error log
-                die("Fatal Error: Gagal menyiapkan query hapus log duty. MySQL Error: " . $conn->error); // Paksa berhenti dan tampilkan error
-                // --- AKHIR KODE DIAGNOSTIK SEMENTARA ---
+                die("Fatal Error: Gagal menyiapkan query hapus log duty. MySQL Error: " . $conn->error); 
             }
-            $stmt_delete->bind_param("ii", $duty_log_id, $employee_id_of_log); // Ini baris 167
+            $stmt_delete->bind_param("ii", $duty_log_id, $employee_id_of_log);
             
             if ($stmt_delete->execute() && $stmt_delete->affected_rows > 0) {
                 $conn->commit();
                 $success_message = "Log jam kerja pada tanggal " . date('d/m/Y H:i', strtotime($log_details['duty_start'])) . " berhasil dihapus.";
 
-                // Kirim notifikasi Discord (seperti di duty-history-management.php)
                 sendDiscordNotification([
-                    'employee_name' => $user['name'], // Pengguna yang menghapus lognya sendiri
-                    'admin_name' => $user['name'], // Dalam konteks ini, user adalah admin bagi dirinya sendiri untuk Discord notif
+                    'employee_name' => $user['name'], 
+                    'admin_name' => $user['name'], 
                     'duty_start' => $log_details['duty_start'],
                     'duty_end' => $log_details['duty_end'],
                     'duration_minutes' => $log_details['duration_minutes']
@@ -140,7 +139,7 @@ $stmt = $conn->prepare("
 $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $activities = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-$stmt->close(); // Tutup statement setelah mengambil hasil
+$stmt->close(); 
 
 // Ambil ringkasan total jam kerja KESELURUHAN pengguna
 $stmt = $conn->prepare("SELECT SUM(duration_minutes) as total_minutes FROM duty_logs WHERE employee_id = ? AND status = 'completed'");
@@ -149,42 +148,72 @@ $stmt->execute();
 $total_duty_minutes = $stmt->get_result()->fetch_assoc()['total_minutes'] ?? 0;
 $stmt->close();
 
-// Ambil ringkasan data penjualan KESELURUHAN untuk pengguna
-$total_sales_summary = [
-    'total_paket_makan_minum_warga' => 0,
-    'total_paket_makan_minum_instansi' => 0,
-    'total_paket_snack' => 0,
-    'total_masak_paket' => 0,
-    'total_masak_snack' => 0,
-    'total_penjualan' => 0, // Baru: total paket makan & minum + paket snack
-    'total_masak_keseluruhan' => 0 // Baru: total masak paket + masak snack
+// === MODIFIKASI: Ambil ringkasan data penjualan dan masak KESELURUHAN untuk pengguna ===
+$sales_prep_summary = [
+    'paket_western_sales' => 0,
+    'paket_nusantara_sales' => 0,
+    'paket_kids_meal_sales' => 0,
+    'paket_royale_sales' => 0, // NEW: Royale Sales
+    'total_penjualan' => 0,
+    
+    'paket_western_prep' => 0,
+    'paket_nusantara_prep' => 0,
+    'paket_kids_meal_prep' => 0,
+    'paket_royale_prep' => 0, // NEW: Royale Prep
+    'total_masak' => 0,
 ];
+
+// Query diperbarui untuk menangani Paket Royale (paket_vip_person)
+// Logika: 
+// - Sales Royale: paket_vip_person > 0 DAN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0
+// - Prep Royale: paket_vip_person > 0 DAN (paket_sake + paket_anggur_merah + paket_tuak) = 0
 $stmt = $conn->prepare("
     SELECT
-        SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
-        SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
-        SUM(paket_snack) as total_paket_snack,
-        SUM(masak_paket) as total_masak_paket,
-        SUM(masak_snack) as total_masak_snack
+        SUM(paket_sake) as paket_western_sales,
+        SUM(paket_anggur_merah) as paket_nusantara_sales,
+        SUM(paket_tuak) as paket_kids_meal_sales,
+        SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_sales,
+
+        SUM(paket_spicy_1) as paket_western_prep,
+        SUM(paket_spicy_2) as paket_nusantara_prep,
+        SUM(paket_spicy_3) as paket_kids_meal_prep,
+        SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END) as paket_royale_prep
     FROM sales_data
     WHERE employee_id = ?
 ");
-$stmt->bind_param("i", $user['id']);
-$stmt->execute();
-$result_sales = $stmt->get_result()->fetch_assoc();
-if ($result_sales) {
-    $total_sales_summary = $result_sales;
-    // Hitung total_penjualan (paket makan & minum + paket snack)
-    $total_sales_summary['total_penjualan'] =
-        $result_sales['total_paket_makan_minum_warga'] +
-        $result_sales['total_paket_makan_minum_instansi'] +
-        $result_sales['total_paket_snack'];
-    // Hitung total_masak_keseluruhan (masak paket + masak snack)
-    $total_sales_summary['total_masak_keseluruhan'] =
-        $result_sales['total_masak_paket'] +
-        $result_sales['total_masak_snack'];
+
+if ($stmt) {
+    $stmt->bind_param("i", $user['id']);
+    $stmt->execute();
+    $result_sales = $stmt->get_result()->fetch_assoc();
+    if ($result_sales) {
+        // Mapping kolom DB ke variabel PHP
+        $sales_prep_summary['paket_western_sales'] = $result_sales['paket_western_sales'];
+        $sales_prep_summary['paket_nusantara_sales'] = $result_sales['paket_nusantara_sales'];
+        $sales_prep_summary['paket_kids_meal_sales'] = $result_sales['paket_kids_meal_sales'];
+        $sales_prep_summary['paket_royale_sales'] = $result_sales['paket_royale_sales']; // Royale Sales
+        
+        $sales_prep_summary['paket_western_prep'] = $result_sales['paket_western_prep'];
+        $sales_prep_summary['paket_nusantara_prep'] = $result_sales['paket_nusantara_prep'];
+        $sales_prep_summary['paket_kids_meal_prep'] = $result_sales['paket_kids_meal_prep'];
+        $sales_prep_summary['paket_royale_prep'] = $result_sales['paket_royale_prep']; // Royale Prep
+        
+        // Menghitung total
+        $sales_prep_summary['total_penjualan'] = 
+            $sales_prep_summary['paket_western_sales'] + 
+            $sales_prep_summary['paket_nusantara_sales'] + 
+            $sales_prep_summary['paket_kids_meal_sales'] +
+            $sales_prep_summary['paket_royale_sales'];
+            
+        $sales_prep_summary['total_masak'] = 
+            $sales_prep_summary['paket_western_prep'] + 
+            $sales_prep_summary['paket_nusantara_prep'] + 
+            $sales_prep_summary['paket_kids_meal_prep'] +
+            $sales_prep_summary['paket_royale_prep'];
+    }
+    $stmt->close();
 }
-$stmt->close();
+
 
 ?>
 
@@ -193,7 +222,7 @@ $stmt->close();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aktivitas Saya - Warung Om Tante</title>
+    <title>Aktivitas Saya -  Warung Om Tante V2</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -233,30 +262,30 @@ $stmt->close();
                 <div class="summary-card">
                     <div class="summary-icon" style="color: var(--primary-color);">💰</div>
                     <div class="summary-content">
-                        <h4>Total Penjualan Keseluruhan</h4>
+                        <h4>Total Penjualan Paket</h4>
                         <p class="summary-value">
-                            <?= $total_sales_summary['total_penjualan'] ?>
+                            <?= $sales_prep_summary['total_penjualan'] ?> Paket
+                        </p>
+                        <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
+                            <span>Western: <strong><?= $sales_prep_summary['paket_western_sales'] ?></strong></span>
+                            <span>Nusantara: <strong><?= $sales_prep_summary['paket_nusantara_sales'] ?></strong></span>
+                            <span>Kids Meal: <strong><?= $sales_prep_summary['paket_kids_meal_sales'] ?></strong></span>
+                            <span>Royale: <strong><?= $sales_prep_summary['paket_royale_sales'] ?></strong></span>
                         </p>
                     </div>
                 </div>
                 <div class="summary-card">
-                    <div class="summary-icon" style="color: var(--warning-color);">🍜</div> <div class="summary-content">
-                        <h4>Total Masak Keseluruhan</h4>
-                        <p class="summary-value">
-                            <?= $total_sales_summary['total_masak_keseluruhan'] ?>
-                        </p>
-                    </div>
-                </div>
-                <div class="summary-card">
-                    <div class="summary-icon" style="color: var(--success-color);">✅</div>
+                    <div class="summary-icon" style="color: var(--warning-color);">🔪</div>
                     <div class="summary-content">
-                        <h4>Detail Item Penjualan</h4>
-                        <p class="stat-breakdown" style="font-size: 0.9em;">
-                            <span>M&M Warga: <strong><?= $total_sales_summary['total_paket_makan_minum_warga'] ?></strong></span>
-                            <span>M&M Instansi: <strong><?= $total_sales_summary['total_paket_makan_minum_instansi'] ?></strong></span>
-                            <span>Snack: <strong><?= $total_sales_summary['total_paket_snack'] ?></strong></span>
-                            <span>Masak P: <strong><?= $total_sales_summary['total_masak_paket'] ?></strong></span>
-                            <span>Masak S: <strong><?= $total_sales_summary['total_masak_snack'] ?></strong></span>
+                        <h4>Total Masak Paket</h4>
+                        <p class="summary-value">
+                            <?= $sales_prep_summary['total_masak'] ?> Paket
+                        </p>
+                        <p class="stat-breakdown" style="font-size: 0.9em; margin-top: 0.5rem; text-align: left;">
+                            <span>Western: <strong><?= $sales_prep_summary['paket_western_prep'] ?></strong></span>
+                            <span>Nusantara: <strong><?= $sales_prep_summary['paket_nusantara_prep'] ?></strong></span>
+                            <span>Kids Meal: <strong><?= $sales_prep_summary['paket_kids_meal_prep'] ?></strong></span>
+                            <span>Royale: <strong><?= $sales_prep_summary['paket_royale_prep'] ?></strong></span>
                         </p>
                     </div>
                 </div>
@@ -288,7 +317,25 @@ $stmt->close();
                                     <tbody>
                                         <?php foreach ($activities as $activity): ?>
                                         <?php
-                                        $is_long_duty = ($activity['duration_minutes'] > 420);
+                                        // Cek jika durasi melebihi 7 jam (420 menit) - hanya berlaku untuk log completed
+                                        $is_long_duty = ($activity['status'] === 'completed' && $activity['duration_minutes'] > 420);
+                                        $is_active = $activity['status'] === 'active';
+                                        
+                                        // Tentukan TIPE tampilan
+                                        $display_type = 'Otomatis';
+                                        $status_class = 'info';
+                                        if ($activity['is_manual'] == 1) {
+                                            $display_type = 'Manual (Web)';
+                                            $status_class = 'warning';
+                                        } elseif ($activity['is_manual'] == 2) {
+                                            $display_type = 'Discord/Bot';
+                                            $status_class = 'primary';
+                                        }
+                                        
+                                        // Tentukan durasi tampilan
+                                        $display_duration = $is_active ? 'Berlangsung' : formatDuration($activity['duration_minutes']);
+                                        $display_end_time = $activity['duty_end'] ? date('H:i', strtotime($activity['duty_end'])) : '-';
+                                        $display_status = ucfirst($activity['status']);
                                         ?>
                                         <tr class="<?= $is_long_duty ? 'long-duty-row' : '' ?>">
                                             <td data-label="Tanggal">
@@ -298,10 +345,10 @@ $stmt->close();
                                                 <?= date('H:i', strtotime($activity['duty_start'])) ?>
                                             </td>
                                             <td data-label="Selesai">
-                                                <?= $activity['duty_end'] ? date('H:i', strtotime($activity['duty_end'])) : '-' ?>
+                                                <?= $display_end_time ?>
                                             </td>
                                             <td data-label="Durasi">
-                                                <strong><?= $activity['duty_end'] ? formatDuration($activity['duration_minutes']) : 'Berlangsung' ?></strong>
+                                                <strong><?= $display_duration ?></strong>
                                                 <?php if ($is_long_duty): ?>
                                                     <span class="long-duty-alert">
                                                         <span class="btn-icon">⚠️</span> >7 Jam
@@ -309,24 +356,25 @@ $stmt->close();
                                                 <?php endif; ?>
                                             </td>
                                             <td data-label="Tipe">
-                                                <span class="status-badge status-<?= $activity['is_manual'] ? 'warning' : 'info' ?>">
-                                                    <?= $activity['is_manual'] ? 'Manual' : 'Otomatis' ?>
+                                                <span class="status-badge status-<?= $status_class ?>">
+                                                    <?= $display_type ?>
                                                 </span>
                                             </td>
                                             <td data-label="Status">
                                                 <span class="status-badge status-<?= $activity['status'] ?>">
-                                                    <?= ucfirst($activity['status']) ?>
+                                                    <?= $display_status ?>
                                                 </span>
                                             </td>
                                             <td data-label="Aksi">
-                                                <?php if ($activity['status'] !== 'pending_approval'): // Hanya bisa dihapus jika bukan pending approval ?>
-                                                <form method="POST" onsubmit="return confirm('Yakin ingin menghapus log jam kerja ini? Aksi ini TIDAK DAPAT DIBATALKAN.')">
+                                                <?php if ($activity['status'] !== 'pending_approval'): ?>
+                                                <form method="POST" onsubmit="return confirm('Yakin ingin menghapus log jam kerja ini? Aksi ini TIDAK DAPAT DIBATALKAN. Catatan: Jika log ini aktif, status On Duty Anda juga akan direset.')">
                                                     <input type="hidden" name="action" value="delete_duty_log">
                                                     <input type="hidden" name="duty_log_id" value="<?= $activity['id'] ?>">
                                                     <button type="submit" class="btn btn-danger btn-sm">Hapus</button>
                                                 </form>
                                                 <?php else: ?>
-                                                    - <?php endif; ?>
+                                                    - 
+                                                <?php endif; ?>
                                             </td>
                                         </tr>
                                         <?php endforeach; ?>

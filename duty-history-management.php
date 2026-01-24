@@ -1,7 +1,7 @@
 <?php
 require_once 'config.php';
 
-if (!isLoggedIn() || !hasRole(['direktur', 'wakil_direktur'])) {
+if (!isLoggedIn() || !hasRole(['ceo', 'direktur', 'wakil_direktur'])) {
     header('Location: dashboard.php');
     exit;
 }
@@ -14,6 +14,16 @@ $error = null;
 $selected_employee_id = null;
 $employee_duty_logs = [];
 $selected_employee_name = 'Pilih Anggota';
+
+// Pastikan fungsi formatDuration ada
+if (!function_exists('formatDuration')) {
+    function formatDuration($minutes) {
+        if ($minutes < 0) return "0j 0m";
+        $hours = floor($minutes / 60);
+        $remainingMinutes = $minutes % 60;
+        return "{$hours}j {$remainingMinutes}m";
+    }
+}
 
 // Handle delete duty log (multiple or single)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_duty_logs') {
@@ -138,7 +148,7 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manajemen Riwayat Jam Kerja - Warung Om Tante</title>
+    <title>Manajemen Riwayat Jam Kerja - Warung Om Tante V2</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -173,6 +183,10 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
             align-items: center;
             gap: 5px;
         }
+        /* Gaya badge tipe */
+        .status-badge.status-primary { background-color: var(--primary-light); color: var(--primary-color); }
+        .status-badge.status-info { background-color: var(--info-light); color: var(--info-color); }
+        .status-badge.status-warning { background-color: var(--warning-light); color: var(--warning-color); }
     </style>
 </head>
 <body>
@@ -254,16 +268,33 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                                         <tbody>
                                             <?php foreach ($employee_duty_logs as $log): ?>
                                             <?php
-                                            // Cek jika durasi melebihi 7 jam (420 menit)
+                                            // Perhitungan durasi & long duty
                                             $is_long_duty = ($log['duration_minutes'] > 420);
+                                            $is_active = $log['status'] === 'active';
+
+                                            // Tentukan TIPE tampilan
+                                            $display_type = 'Otomatis';
+                                            $status_class = 'info';
+                                            if ($log['is_manual'] == 1) {
+                                                $display_type = 'Manual (Web)';
+                                                $status_class = 'warning';
+                                            } elseif ($log['is_manual'] == 2) {
+                                                $display_type = 'Discord/Bot';
+                                                $status_class = 'primary';
+                                            }
+
+                                            // Tentukan Durasi & Selesai
+                                            $display_duration = $is_active ? 'Berlangsung' : formatDuration($log['duration_minutes']);
+                                            $display_end_time = $log['duty_end'] ? date('H:i', strtotime($log['duty_end'])) : 'Berlangsung';
+                                            $display_status = ucfirst($log['status']);
                                             ?>
                                             <tr class="<?= $is_long_duty ? 'long-duty-row' : '' ?>">
                                                 <td><input type="checkbox" name="duty_log_ids[]" value="<?= $log['id'] ?>" class="row-checkbox"></td>
                                                 <td data-label="Tanggal"><?= date('d/m/Y', strtotime($log['duty_start'])) ?></td>
                                                 <td data-label="Mulai"><?= date('H:i', strtotime($log['duty_start'])) ?></td>
-                                                <td data-label="Selesai"><?= $log['duty_end'] ? date('H:i', strtotime($log['duty_end'])) : 'Berlangsung' ?></td>
+                                                <td data-label="Selesai"><?= $display_end_time ?></td>
                                                 <td data-label="Durasi">
-                                                    <strong><?= $log['duty_end'] ? formatDuration($log['duration_minutes']) : 'Berlangsung' ?></strong>
+                                                    <strong><?= $display_duration ?></strong>
                                                     <?php if ($is_long_duty): ?>
                                                         <span class="long-duty-alert">
                                                             <span class="btn-icon">⚠️</span> >7 Jam
@@ -271,13 +302,13 @@ if (isset($_GET['employee_id']) && !empty($_GET['employee_id'])) {
                                                     <?php endif; ?>
                                                 </td>
                                                 <td data-label="Tipe">
-                                                    <span class="status-badge status-<?= $log['is_manual'] ? 'warning' : 'info' ?>">
-                                                        <?= $log['is_manual'] ? 'Manual' : 'Otomatis' ?>
+                                                    <span class="status-badge status-<?= $status_class ?>">
+                                                        <?= $display_type ?>
                                                     </span>
                                                 </td>
                                                 <td data-label="Status">
                                                     <span class="status-badge status-<?= $log['status'] ?>">
-                                                        <?= ucfirst($log['status']) ?>
+                                                        <?= $display_status ?>
                                                     </span>
                                                 </td>
                                                 <td data-label="Disetujui Oleh">

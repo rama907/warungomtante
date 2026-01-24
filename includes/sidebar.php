@@ -1,4 +1,6 @@
 <?php
+// File: rama907/takagroup/rama907-takagroup-8ee4312790aa74e2b35b9ce31a1ab20b69583b9c/includes/sidebar.php
+
 // Kode ini akan dieksekusi setiap kali sidebar dimuat
 // Pastikan variabel $conn dan $user sudah tersedia dari file PHP utama yang memanggil sidebar.php
 
@@ -103,6 +105,14 @@ if (isset($_SESSION['user_id']) && isset($conn) && isset($user)) {
     }
 }
 
+// BARU: Ambil hitungan pending yang terpisah
+// CATATAN: Karena fungsi getPendingRequestCounts() baru dibuat, 
+// pastikan file config.php sudah diupdate dengan fungsi tersebut.
+$all_pending_counts = getPendingRequestCounts();
+$pending_requests_count = $all_pending_counts['employee_requests']; // Permohonan (Cuti, Resign, dll)
+$pending_bookings_count = $all_pending_counts['booking_requests']; // Kelola Pemesanan
+$total_pending_all = $all_pending_counts['total']; // Total semua pending (untuk menu "Semua Permohonan" jika perlu)
+
 // Hitung total surat peringatan untuk notifikasi "Semua Surat Peringatan"
 $all_warnings_count = 0;
 if (isset($conn) && isLoggedIn()) { 
@@ -117,34 +127,46 @@ if (isset($conn) && isLoggedIn()) {
 
 <nav class="sidebar" id="sidebar">
     <div class="sidebar-content">
-        <a href="dashboard.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : '' ?>">
+        <a href="dashboard" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : '' ?>">
             <span class="nav-icon">🏠</span>
             <span class="nav-text">Dashboard</span>
         </a>
-        <a href="sales.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'sales.php' ? 'active' : '' ?>">
+        <a href="sales" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'sales.php' ? 'active' : '' ?>">
             <span class="nav-icon">💰</span>
             <span class="nav-text">Data Penjualan</span>
         </a>
-        <a href="manual-duty.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'manual-duty.php' ? 'active' : '' ?>">
+        <a href="data-masak" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'data-masak.php' ? 'active' : '' ?>">
+            <span class="nav-icon">🍳</span>
+            <span class="nav-text">Data Masak</span>
+        </a>
+        <a href="refrigerator-stock" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'refrigerator-stock.php' ? 'active' : '' ?>">
+            <span class="nav-icon">🍛</span>
+            <span class="nav-text">Stok Kulkas</span>
+        </a>    
+        <a href="warehouse-stock" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'warehouse-stock.php' ? 'active' : '' ?>">
+            <span class="nav-icon">📦</span>
+            <span class="nav-text">Stok Gudang</span>
+        </a>     
+        <a href="manual-duty" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'manual-duty.php' ? 'active' : '' ?>">
             <span class="nav-icon">⏱️</span>
             <span class="nav-text">Input Manual</span>
         </a>
-        <a href="activities.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'activities.php' ? 'active' : '' ?>">
+        <a href="activities" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'activities.php' ? 'active' : '' ?>">
             <span class="nav-icon">📊</span>
             <span class="nav-text">Aktivitas Saya</span>
         </a>
-        <a href="my-payslip.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-payslip.php' ? 'active' : '' ?>">
+        <a href="my-payslip" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-payslip.php' ? 'active' : '' ?>">
             <span class="nav-icon">📄</span>
             <span class="nav-text">Slip Gaji Saya</span>
         </a>
-        <a href="my-warnings.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-warnings.php' ? 'active' : '' ?>">
+        <a href="my-warnings" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-warnings.php' ? 'active' : '' ?>">
             <span class="nav-icon">⚠️</span>
             <span class="nav-text">Surat Peringatan Saya</span>
             <?php if (isset($my_warnings_count) && $my_warnings_count > 0): ?>
                 <span class="warning-indicator">!</span>
             <?php endif; ?>
         </a>
-        <a href="my-attendance.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-attendance.php' ? 'active' : '' ?>">
+        <a href="my-attendance" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'my-attendance.php' ? 'active' : '' ?>">
             <span class="nav-icon">📅</span>
             <span class="nav-text">Absensi Saya</span>
             <?php if (isset($max_consecutive_absent_sidebar) && $max_consecutive_absent_sidebar >= 2): ?>
@@ -153,66 +175,87 @@ if (isset($conn) && isLoggedIn()) {
         </a>
         
         <div class="nav-divider"></div>
-        <a href="all-requests.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-requests.php' ? 'active' : '' ?>">
+        <a href="all-requests" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-requests.php' ? 'active' : '' ?>">
             <span class="nav-icon">📋</span>
             <span class="nav-text">Semua Permohonan</span>
         </a>
-        <a href="all-warnings.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-warnings.php' ? 'active' : '' ?>">
+        <a href="all-warnings" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'all-warnings.php' ? 'active' : '' ?>">
             <span class="nav-icon">📜</span>
             <span class="nav-text">Semua Surat Peringatan</span>
             <?php if (isset($all_warnings_count) && $all_warnings_count > 0): ?>
                 <span class="pending-indicator"><?= $all_warnings_count ?></span>
             <?php endif; ?>
         </a>
-        <a href="suggestions.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'suggestions.php' ? 'active' : '' ?>">
+        <a href="suggestions" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'suggestions.php' ? 'active' : '' ?>">
             <span class="nav-icon">🚨</span>
             <span class="nav-text">Saran & Kritik (Anonim)</span>
         </a>
+        <a href="change-password" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'change-password.php' ? 'active' : '' ?>">
+            <span class="nav-icon">🔑</span>
+            <span class="nav-text">Ubah Kata Sandi</span>
+        </a>
         
-        <?php if (hasRole(['direktur', 'wakil_direktur', 'manager'])): ?>
+        <?php if (hasRole(['ceo', 'direktur', 'wakil_direktur', 'manager'])): ?>
         <div class="nav-divider"></div>
-        <a href="employees.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'employees.php' ? 'active' : '' ?>">
+        <a href="employee-report" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'employee-report.php' ? 'active' : '' ?>">
+            <span class="icon">🌎</span>
+            <span class="text">Laporan Karyawan</span>
+        </a>
+        <a href="employees" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'employees.php' ? 'active' : '' ?>">
             <span class="nav-icon">👥</span>
             <span class="nav-text">Daftar Anggota</span>
         </a>
-        <a href="employee-activities.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'employee-activities.php' ? 'active' : '' ?>">
+        <a href="employee-activities" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'employee-activities.php' ? 'active' : '' ?>">
             <span class="nav-icon">📈</span>
             <span class="nav-text">Aktivitas Anggota</span>
         </a>
-        <a href="income-report.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'income-report.php' ? 'active' : '' ?>">
+        <a href="income-report" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'income-report.php' ? 'active' : '' ?>">
             <span class="nav-icon">💳</span>
             <span class="nav-text">Laporan Pemasukan</span>
         </a>
-        <a href="salary-recap.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'salary-recap.php' ? 'active' : '' ?>">
+        <a href="salary-recap" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'salary-recap.php' ? 'active' : '' ?>">
             <span class="nav-icon">💸</span>
             <span class="nav-text">Rekap Gaji</span>
         </a>
-        <a href="attendance-recap.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'attendance-recap.php' ? 'active' : '' ?>">
+        <a href="attendance-recap" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'attendance-recap.php' ? 'active' : '' ?>">
             <span class="nav-icon">📅</span>
             <span class="nav-text">Rekap Absensi</span>
         </a>
-        <a href="warning-management.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'warning-management.php' ? 'active' : '' ?>">
+        <a href="warning-management" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'warning-management.php' ? 'active' : '' ?>">
             <span class="nav-icon">⚠️</span>
             <span class="nav-text">Manajemen SP</span>
         </a>
+
+        <a href="manage-bookings" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'manage-bookings.php' ? 'active' : '' ?>">
+            <span class="nav-icon">🛎️</span>
+            <span class="nav-text">Kelola Pemesanan</span>
+            <?php if (isset($pending_bookings_count) && $pending_bookings_count > 0): ?>
+                <span class="pending-indicator"><?= $pending_bookings_count ?></span>
+            <?php endif; ?>
+        </a>
         <?php endif; ?>
         
-        <?php if (hasRole(['direktur', 'wakil_direktur'])): ?>
+        <?php if (hasRole(['ceo', 'direktur', 'wakil_direktur'])): ?>
         <div class="nav-divider"></div>
-        <a href="requests.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'requests.php' ? 'active' : '' ?>">
+
+        <a href="requests" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'requests.php' ? 'active' : '' ?>">
             <span class="nav-icon">📋</span>
             <span class="nav-text">Permohonan</span>
             <?php if (isset($pending_requests_count) && $pending_requests_count > 0): ?>
                 <span class="pending-indicator"><?= $pending_requests_count ?></span>
             <?php endif; ?>
         </a>
-        <a href="admin.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'admin.php' ? 'active' : '' ?>">
+        <a href="admin" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'admin.php' ? 'active' : '' ?>">
             <span class="nav-icon">⚙️</span>
             <span class="nav-text">Admin Panel</span>
         </a>
-        <a href="duty-history-management.php" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'duty-history-management.php' ? 'active' : '' ?>">
+        <a href="duty-history-management" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'duty-history-management.php' ? 'active' : '' ?>">
             <span class="nav-icon">⏱️</span>
             <span class="nav-text">Manajemen Jam Duty</span>
+        </a>
+        <a href="weekly-salary-recap" class="nav-item <?= basename($_SERVER['PHP_SELF']) == 'weekly-salary-recap.php' ? 'active' : '' ?>">
+            <span class="nav-icon">📘</span>
+            <span class="nav-text">Backup Gaji Mingguan</span>
         </a>
         <?php endif; ?>
     </div>

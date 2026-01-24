@@ -2,10 +2,10 @@
 require_once 'config.php';
 
 if (!isLoggedIn()) {
-    header('Location: index.php');
+    // Diubah: Mengarahkan ke root (/) untuk halaman index/login
+    header('Location: /');
     exit;
 }
-
 $user = getCurrentUser();
 
 // Ambil jumlah permohonan pending untuk indikator sidebar
@@ -32,56 +32,83 @@ if ($stmt_sp) {
 }
 
 // Handle duty actions
-if ($_POST['action'] ?? '' === 'on_duty') {
+if (isset($_POST['action']) && $_POST['action'] === 'on_duty') {
     if (!$user['is_on_duty']) {
+        
+        // 1. Update status employee
         $stmt = $conn->prepare("UPDATE employees SET is_on_duty = TRUE, current_duty_start = NOW() WHERE id = ?");
         $stmt->bind_param("i", $user['id']);
         $stmt->execute();
         
-        $stmt = $conn->prepare("INSERT INTO duty_logs (employee_id, duty_start) VALUES (?, NOW())");
+        // 2. Insert log (is_manual=0, status='active' for automatic web clock-in)
+        $stmt = $conn->prepare("INSERT INTO duty_logs (employee_id, duty_start, is_manual, status) VALUES (?, NOW(), 0, 'active')");
         $stmt->bind_param("i", $user['id']);
         $stmt->execute();
         
         sendDiscordNotification(['employee_name' => $user['name'], 'event_type' => 'clock_in'], 'clock_event');
-        header('Location: dashboard.php');
+        header('Location: dashboard');
         exit;
     }
 }
 
-if ($_POST['action'] ?? '' === 'off_duty') {
+if (isset($_POST['action']) && $_POST['action'] === 'off_duty') {
     if ($user['is_on_duty']) {
-        $stmt = $conn->prepare("SELECT id FROM duty_logs WHERE employee_id = ? AND duty_end IS NULL ORDER BY id DESC LIMIT 1");
-        $stmt->bind_param("i", $user['id']);
-        $stmt->execute();
-        $log = $stmt->get_result()->fetch_assoc();
-        
-        if ($log) {
-            $stmt = $conn->prepare("UPDATE duty_logs SET duty_end = NOW(), duration_minutes = TIMESTAMPDIFF(MINUTE, duty_start, NOW()), status = 'completed' WHERE id = ?");
-            $stmt->bind_param("i", $log['id']);
+        $conn->begin_transaction();
+        try {
+            $stmt = $conn->prepare("SELECT id, duty_start FROM duty_logs WHERE employee_id = ? AND duty_end IS NULL ORDER BY id DESC LIMIT 1");
+            $stmt->bind_param("i", $user['id']);
             $stmt->execute();
-        }
-        
-        $stmt = $conn->prepare("UPDATE employees SET is_on_duty = FALSE, current_duty_start = NULL WHERE id = ?");
-        $stmt->bind_param("i", $user['id']);
-        $stmt->execute();
-        
-        $stmt_log = $conn->prepare("SELECT duty_start FROM duty_logs WHERE employee_id = ? AND duty_end IS NOT NULL ORDER BY id DESC LIMIT 1");
-        $stmt_log->bind_param("i", $user['id']);
-        $stmt_log->execute();
-        $last_log = $stmt_log->get_result()->fetch_assoc();
-        $stmt_log->close();
+            $log = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            
+            if ($log) {
+                // FIX 1: Gunakan TIMESTAMPDIFF(MINUTE, ...) untuk menghitung durasi yang akurat dan set status ke 'completed'
+                $stmt_update_log = $conn->prepare("
+                    UPDATE duty_logs 
+                    SET duty_end = NOW(), 
+                        duration_minutes = TIMESTAMPDIFF(MINUTE, duty_start, NOW()), 
+                        status = 'completed' 
+                    WHERE id = ?
+                ");
+                if (!$stmt_update_log) {
+                    throw new Exception("Gagal menyiapkan query update log duty: " . $conn->error);
+                }
+                $stmt_update_log->bind_param("i", $log['id']);
+                $stmt_update_log->execute();
+                $stmt_update_log->close();
+            }
+            
+            // Update status employee
+            $stmt_update_employee = $conn->prepare("UPDATE employees SET is_on_duty = FALSE, current_duty_start = NULL WHERE id = ?");
+            if (!$stmt_update_employee) {
+                 throw new Exception("Gagal menyiapkan query update status karyawan: " . $conn->error);
+            }
+            $stmt_update_employee->bind_param("i", $user['id']);
+            $stmt_update_employee->execute();
+            $stmt_update_employee->close();
+            
+            $conn->commit();
 
-        $duration_text = 'N/A';
-        if ($last_log) {
-            $start_dt = new DateTime($last_log['duty_start']);
-            $end_dt = new DateTime(); // Waktu sekarang
-            $interval = $start_dt->diff($end_dt);
-            $duration_text = $interval->h . 'j ' . $interval->i . 'm ' . $interval->s . 'd'; // Menit dan detik untuk akurasi
-        }
+            // Ambil durasi yang baru dihitung untuk notifikasi Discord
+            $stmt_log_duration = $conn->prepare("SELECT duty_start, duration_minutes FROM duty_logs WHERE employee_id = ? AND status = 'completed' ORDER BY id DESC LIMIT 1");
+            $stmt_log_duration->bind_param("i", $user['id']);
+            $stmt_log_duration->execute();
+            $last_log = $stmt_log_duration->get_result()->fetch_assoc();
+            $stmt_log_duration->close();
+            
+            $duration_text = formatDuration($last_log['duration_minutes'] ?? 0);
 
-        sendDiscordNotification(['employee_name' => $user['name'], 'event_type' => 'clock_out', 'duration' => $duration_text], 'clock_event');
-        header('Location: dashboard.php');
-        exit;
+            sendDiscordNotification(['employee_name' => $user['name'], 'event_type' => 'clock_out', 'duration' => $duration_text], 'clock_event');
+            header('Location: dashboard');
+            exit;
+
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("Off Duty Error: " . $e->getMessage());
+            // Redirect dengan pesan error
+            header('Location: dashboard?msg=' . urlencode('Terjadi kesalahan saat Clock Out: ' . $e->getMessage()) . '&type=error');
+            exit;
+        }
     }
 }
 
@@ -90,43 +117,53 @@ $stmt = $conn->prepare("SELECT SUM(duration_minutes) as total_minutes FROM duty_
 $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $total_minutes = $stmt->get_result()->fetch_assoc()['total_minutes'] ?? 0;
+$stmt->close();
 
-$stmt = $conn->prepare("SELECT AVG(duration_minutes) as avg_minutes FROM duty_logs WHERE employee_id = ? AND duty_end IS NOT NULL");
-$stmt->bind_param("i", $user['id']);
-$stmt->execute();
-$avg_minutes = $stmt->get_result()->fetch_assoc()['avg_minutes'] ?? 0;
-
-// Ambil ringkasan data penjualan KESELURUHAN untuk pengguna (Overall Sales & Masak)
-$total_sales_overall_dashboard = [
-    'total_paket_makan_minum_warga' => 0,
-    'total_paket_makan_minum_instansi' => 0,
-    'total_paket_snack' => 0,
-    'total_masak_paket' => 0,
-    'total_masak_snack' => 0,
-];
-$stmt_sales_overall = $conn->prepare("
+// === MODIFIKASI: QUERY UNTUK TOTAL PENJUALAN (Termasuk Royale) ===
+// Logic: Menambahkan paket_vip_person sebagai sales HANYA JIKA paket masak (spicy_*) kosong.
+$total_sales_packages_dashboard = 0;
+$stmt_sales_packages = $conn->prepare("
     SELECT
-        SUM(paket_makan_minum_warga) as total_paket_makan_minum_warga,
-        SUM(paket_makan_minum_instansi) as total_paket_makan_minum_instansi,
-        SUM(paket_snack) as total_paket_snack,
-        SUM(masak_paket) as total_masak_paket,
-        SUM(masak_snack) as total_masak_snack
+        COALESCE(SUM(paket_sake), 0) as paket_western, 
+        COALESCE(SUM(paket_anggur_merah), 0) as paket_nusantara, 
+        COALESCE(SUM(paket_tuak), 0) as paket_kids_meal,
+        COALESCE(SUM(CASE WHEN (paket_spicy_1 + paket_spicy_2 + paket_spicy_3) = 0 THEN paket_vip_person ELSE 0 END), 0) as paket_royale_sales
     FROM sales_data
     WHERE employee_id = ?
 ");
-$stmt_sales_overall->bind_param("i", $user['id']);
-$stmt_sales_overall->execute();
-$result_sales_overall = $stmt_sales_overall->get_result()->fetch_assoc();
-if ($result_sales_overall) {
-    $total_sales_overall_dashboard = $result_sales_overall;
+if ($stmt_sales_packages) {
+    $stmt_sales_packages->bind_param("i", $user['id']);
+    $stmt_sales_packages->execute();
+    $result_sales_packages = $stmt_sales_packages->get_result()->fetch_assoc();
+    if ($result_sales_packages) {
+        $total_sales_packages_dashboard = array_sum($result_sales_packages);
+    }
+    $stmt_sales_packages->close();
 }
-$stmt_sales_overall->close();
+$total_paket_terjual_dashboard = $total_sales_packages_dashboard; // Variabel yang digunakan di HTML
 
-$total_paket_terjual_dashboard = $total_sales_overall_dashboard['total_paket_makan_minum_warga'] +
-                                 $total_sales_overall_dashboard['total_paket_makan_minum_instansi'] +
-                                 $total_sales_overall_dashboard['total_paket_snack'] +
-                                 $total_sales_overall_dashboard['total_masak_paket'] +
-                                 $total_sales_overall_dashboard['total_masak_snack'];
+// === MODIFIKASI: QUERY UNTUK TOTAL MASAK (Termasuk Royale) ===
+// Logic: Menambahkan paket_vip_person sebagai prep HANYA JIKA paket sales (sake/anggur/tuak) kosong.
+$total_prep_packages_dashboard = 0;
+$stmt_prep_packages = $conn->prepare("
+    SELECT
+        COALESCE(SUM(paket_spicy_1), 0) as paket_western_prep, 
+        COALESCE(SUM(paket_spicy_2), 0) as paket_nusantara_prep, 
+        COALESCE(SUM(paket_spicy_3), 0) as paket_kids_meal_prep,
+        COALESCE(SUM(CASE WHEN (paket_sake + paket_anggur_merah + paket_tuak) = 0 THEN paket_vip_person ELSE 0 END), 0) as paket_royale_prep
+    FROM sales_data
+    WHERE employee_id = ?
+");
+if ($stmt_prep_packages) {
+    $stmt_prep_packages->bind_param("i", $user['id']);
+    $stmt_prep_packages->execute();
+    $result_prep_packages = $stmt_prep_packages->get_result()->fetch_assoc();
+    if ($result_prep_packages) {
+        $total_prep_packages_dashboard = array_sum($result_prep_packages);
+    }
+    $stmt_prep_packages->close();
+}
+$total_paket_masak_dashboard = $total_prep_packages_dashboard; // Variabel baru untuk Masak
 
 
 // Get recent activities
@@ -134,6 +171,8 @@ $stmt = $conn->prepare("SELECT * FROM duty_logs WHERE employee_id = ? ORDER BY d
 $stmt->bind_param("i", $user['id']);
 $stmt->execute();
 $recent_activities = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->close();
+
 
 // Get current duty duration if on duty for alert
 $current_duty_duration_seconds = 0;
@@ -154,7 +193,7 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Warung Om Tante</title>
+    <title>Dashboard - Warung Om Tante V2</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -167,27 +206,42 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
             display: block;
             margin: auto;
         }
-        /* CSS untuk logo Warung Om Tante di header dashboard */
+        
+        /* CSS untuk logo Royale Grill & Bar di header dashboard */
         .profile-avatar {
             width: 80px;
             height: 80px;
-            background: linear-gradient(135deg, var(--primary-color), var(--primary-hover));
-            border-radius: 50%;
+            background: none !important; /* Hapus latar belakang kuning/gradient */
+            border-radius: 0 !important; /* Hapus efek lingkaran */
+            border: none !important; /* Hapus border */
+            box-shadow: none !important; /* Hapus bayangan */
+            padding: 0; /* Hapus padding */
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-size: 2rem;
-            box-shadow: var(--shadow-lg);
-            border: 4px solid var(--bg-card);
             overflow: hidden;
+            position: relative; 
         }
-        .profile-avatar img {
+        /* Style untuk gambar logo di dalam profile-avatar */
+        .profile-avatar img.logo-img {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
-            transform: scale(0.8);
-            padding: 5px;
+            width: 100%;
+            height: 100%;
+            padding: 0; /* Hapus padding internal */
+            transform: scale(1); 
+        }
+        /* Sembunyikan ikon placeholder lama di dalam profile-avatar */
+        .profile-avatar span {
+            display: none;
+        }
+        /* Ganti Judul Lama */
+        .profile-info h1 {
+            font-size: 2.25rem;
+            font-weight: 700;
+            margin-bottom: var(--spacing-sm);
+            letter-spacing: -0.025em;
         }
     </style>
 </head>
@@ -197,6 +251,9 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
         <?php include 'includes/sidebar.php'; ?>
 
         <main class="main-content">
+            <?php if (isset($_GET['msg']) && $_GET['type'] == 'error'): ?>
+                <div class="error-message">❌ <?= htmlspecialchars($_GET['msg']) ?></div>
+            <?php endif; ?>
             <?php if ($long_duty_alert_dashboard): ?>
                 <div class="warning-message" style="margin-bottom: var(--spacing-xl);">
                     <strong>⚠️ Perhatian:</strong> Anda sudah On Duty lebih dari 5 jam. Pastikan Anda beristirahat yang cukup!
@@ -206,10 +263,10 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
             <div class="dashboard-header">
                 <div class="user-profile">
                     <div class="profile-avatar">
-                        <img src="LOGO_WOT.png" alt="Logo Warung Om Tante">
+                        <img src="LOGO_WOT.png" alt="Warung Om Tante V2 Logo" class="logo-img">
                     </div>
                     <div class="profile-info">
-                        <h1>Sistem Manajemen Warung Om Tante</h1>
+                        <h1>Sistem Manajemen Warung Om Tante V2</h1> 
                         <div class="user-details">
                             <span class="user-icon">👤</span>
                             <span class="user-name"><?= htmlspecialchars($user['name']) ?></span>
@@ -258,19 +315,23 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                         Off Duty
                     </button>
                 </form>
-                <a href="sales.php" class="btn btn-primary">
+                <a href="sales" class="btn btn-primary">
                     <span class="btn-icon">💰</span>
                     Input Penjualan
                 </a>
-                <a href="leave-request.php" class="btn btn-info">
+                <a href="data-masak" class="btn btn-primary">
+                    <span class="btn-icon">🔪</span>
+                    Input Data Masak
+                </a>
+                <a href="leave-request" class="btn btn-info">
                     <span class="btn-icon">📝</span>
                     Cuti
                 </a>
-                <a href="resignation-request.php" class="btn btn-danger">
+                <a href="resignation-request" class="btn btn-danger">
                     <span class="btn-icon">📄</span>
                     Resign
                 </a>
-                <a href="manual-duty.php" class="btn btn-primary">
+                <a href="manual-duty" class="btn btn-primary">
                     <span class="btn-icon">⏱️</span>
                     Input Jam Manual
                 </a>
@@ -288,8 +349,16 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                     <div class="stat-icon">
                         💰 </div>
                     <div class="stat-content">
-                        <h3>Total Penjualan & Masak</h3>
+                        <h3>Total Penjualan</h3>
                         <p class="stat-value"><?= $total_paket_terjual_dashboard ?> Paket</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        🔪 </div>
+                    <div class="stat-content">
+                        <h3>Total Masak</h3>
+                        <p class="stat-value"><?= $total_paket_masak_dashboard ?> Paket</p>
                     </div>
                 </div>
             </div>
@@ -304,6 +373,24 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                         <div class="no-data">Belum ada aktivitas</div>
                     <?php else: ?>
                         <?php foreach ($recent_activities as $activity): ?>
+                        <?php 
+                        // Tentukan TIPE tampilan
+                        $display_type = 'Otomatis';
+                        $status_class = 'info';
+                        if ($activity['is_manual'] == 1) {
+                            $display_type = 'Manual (Web)';
+                            $status_class = 'warning';
+                        } elseif ($activity['is_manual'] == 2) {
+                            $display_type = 'Discord/Bot';
+                            $status_class = 'primary';
+                        }
+
+                        // Tentukan durasi tampilan
+                        $is_active = $activity['status'] === 'active';
+                        $display_end_time = $activity['duty_end'] ? date('H:i', strtotime($activity['duty_end'])) : '-';
+                        $display_duration = $is_active ? 'Berlangsung' : formatDuration($activity['duration_minutes']);
+                        $display_status = ucfirst($activity['status']);
+                        ?>
                         <div class="activity-item">
                             <div class="activity-date">
                                 <span class="date-icon">📅</span>
@@ -312,13 +399,20 @@ if ($user['is_on_duty'] && $user['current_duty_start']) {
                             <div class="activity-time">
                                 <span class="time-icon">⏰</span>
                                 <?= date('H:i', strtotime($activity['duty_start'])) ?> - 
-                                <?= $activity['duty_end'] ? date('H:i', strtotime($activity['duty_end'])) : 'Sedang Berlangsung' ?>
+                                <?= $display_end_time ?>
                             </div>
-                            <?php if ($activity['duty_end']): ?>
                             <div class="activity-duration">
-                                Total Jam: <?= formatDuration($activity['duration_minutes']) ?>
+                                <strong>Tipe:</strong> 
+                                <span class="status-badge status-<?= $status_class ?>">
+                                    <?= $display_type ?>
+                                </span>
+                                | <strong>Status:</strong>
+                                <span class="status-badge status-<?= $activity['status'] ?>">
+                                    <?= $display_status ?>
+                                </span>
+                                | <strong>Durasi:</strong> 
+                                <?= $display_duration ?>
                             </div>
-                            <?php endif; ?>
                         </div>
                         <?php endforeach; ?>
                     <?php endif; ?>

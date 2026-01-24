@@ -17,7 +17,7 @@ $pending_requests_count = getPendingRequestCount(); // Untuk sidebar
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Slip Gaji Saya - UNDER MAINTENANCE</title>
+    <title>Kelola Pemesanan - UNDER MAINTENANCE</title>
     <link rel="icon" href="LOGO_WOT.png" type="image/png">
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="style.css">
@@ -73,12 +73,12 @@ $pending_requests_count = getPendingRequestCount(); // Untuk sidebar
             <div class="maintenance-container">
                 <div class="maintenance-card">
                     <div class="maintenance-icon">🚧</div>
-                    <h2 class="maintenance-title">Sistem Slip Gaji Sedang Dalam Perawatan</h2>
+                    <h2 class="maintenance-title">Sedang Dalam Perawatan</h2>
                     <p class="maintenance-message">
-                        Mohon maaf atas ketidaknyamanan ini. Fitur Slip Gaji saat ini sedang diperbarui untuk menyesuaikan dengan struktur penggajian dan paket Restoran yang baru.
+                        Mohon maaf atas ketidaknyamanan ini.
                     </p>
                     <p class="maintenance-message">
-                        Silakan hubungi bagian Finance/HRD untuk mendapatkan slip gaji manual jika diperlukan.
+                        Silakan hubungi bagian Pihak Developers By Rinaldi Production.
                     </p>
                     <a href="dashboard.php" class="btn btn-primary">Kembali ke Dashboard</a>
                 </div>
