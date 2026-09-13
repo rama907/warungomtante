@@ -7,14 +7,14 @@ error_reporting(E_ALL & ~E_NOTICE);
 
 // --- KONSTANTA BARU UNTUK DISCORD BOT API ---
 // GANTI 'MASUKKAN_KUNCI_RAHASIA_ANDA_DISINI' dengan kunci unik (contoh: aBc123XyZ789)
-define('API_SECRET_KEY', '564d5c059a374f249a79e481bbf9df15'); 
+define('API_SECRET_KEY', ''); 
 // -------------------------------------------
 
 // Database configuration
 define('DB_HOST', 'localhost');
-define('DB_USER', 'gluofwrr_warungomtantev2');
-define('DB_PASS', '6STtcgJk9JL35Zq3DsBd');
-define('DB_NAME', 'gluofwrr_warungomtantev2');
+define('DB_USER', '');
+define('DB_PASS', '');
+define('DB_NAME', '');
 
 // Create connection
 $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
@@ -190,35 +190,35 @@ function sendDiscordNotification($data, $type = 'info') {
     // --- 1. Konfigurasi Webhook & Bot Khusus ---
     
     // Webhook 1: Pusat Notifikasi (Umum, Clock Event, Admin System Action)
-    $general_webhook_url = 'https://discord.com/api/webhooks/1464181443461779560/jTVW66L0o6m_ZhnEok7Zn2ajPS5S9_bOQrPnhI4jL9odUS5xzcxar9QHbvzIqS3Wgmus';
+    $general_webhook_url = '';
     $general_bot_name = "Warung Om Tante V2 Bot";
 
     // Webhook 2: Permohonan & Surat Menyurat (Leave, Resign, Manual Duty, Booking, dll)
-    $request_webhook_url = 'https://discord.com/api/webhooks/1464181627889647761/esbsFAfOad3qb2Q77opb95rX0Kc0ApJZfhAYgk6_b82ETKhLND4A5WCGwNHd9jVAyEZM'; 
+    $request_webhook_url = 'https://discord.com/api/webhoo'; 
     $request_bot_name = "Warung Om Tante V2 Request Bot";
 
     // Webhook 3: Stok Kulkas
-    $refrigerator_webhook_url = 'https://discord.com/api/webhooks/1464182063837216965/GZAmNlHUgmY2Ht7PNXZQEvJXh8oUCFrJGombt4H9w90iiUNMwHne9esMthu33w2Tv1zZ';
+    $refrigerator_webhook_url = 'https://discord.com/api/webhooks';
     $refrigerator_bot_name = "Warung Om Tante V2 Kulkas Bot";
 
     // Webhook 4: Stok Gudang
-    $warehouse_webhook_url = 'https://discord.com/api/webhooks/1464182173014949973/I4DU_TEkiSqOOKMmE2Hk4JcsNZAQJDb_JfQsPTtrpjD3-qdBwyCMKoKN8S8FZ2h_nFBx';
+    $warehouse_webhook_url = 'https://discord.com/api/webhooks/';
     $warehouse_bot_name = "Warung Om Tante V2 Gudang Bot";
     
     // Webhook 5: Penjualan
-    $sales_webhook_url = 'https://discord.com/api/webhooks/1464181876196376658/6rcKPPPH57XmwsSA1rsXMlCsbOn-8NRG1lCfb7vgLM12qj_eCJMisIN-Bf_DM4v48o7o'; 
+    $sales_webhook_url = 'https://discord.com/api/webhooks/'; 
     $sales_bot_name = "Warung Om Tante V2 Sales Bot";
     
     // Webhook 6: Laporan Rekap Absensi
-    $report_webhook_url = 'https://discord.com/api/webhooks/1464182585704972402/o0h3IZ4d2lmyQzyJBkncy9qtK9CEcNxVrZSxBjtigX7TQxJPYo_URnK4HUvvfNc8FeV5'; 
+    $report_webhook_url = 'https://discord.com/api/webhooks/14'; 
     $report_bot_name = "Warung Om Tante V2 Report Bot";
 
     // Webhook 7: Rekap Jam Duty
-    $duty_recap_webhook_url = 'https://discord.com/api/webhooks/1464182707184468011/BcR8AV6CuHupnEvZAykzijQrBhwYxbYfLhegYDM0voFmw7-mrtW5g5zcOKwRtn1B9aut'; 
+    $duty_recap_webhook_url = 'https://discord.com/api/webhooks/14'; 
     $duty_recap_bot_name = "Warung Om Tante V2 Duty Recap Bot";
 
     // Webhook 8: Gaji/Payroll
-    $salary_webhook_url = 'https://discord.com/api/webhooks/1464182468000219217/IVLVztUuRfgn1BB3iepjPubJnzBHl_g8BDK1JNNxxyX9B4NAGTLDGtQUKGkwgtwkUXNr'; 
+    $salary_webhook_url = 'https://discord.com/api/webhooks/14'; 
     $salary_bot_name = "Warung Om Tante V2 Payroll Bot"; 
     // =====================================
 
